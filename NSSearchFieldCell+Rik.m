@@ -139,7 +139,11 @@
         {
           frame.origin.x += 16;
           frame.size.width -= 30;
-          frame.size.height += 2;
+	  /*By Slex: If you modify this value, then the chars. will overlap when the text field is 		  *full filled of charcters. You'll see part of characters like 'p' or 'g' or 'j' taking
+          *the next line of the editor text field, looking very bad
+	  */
+          frame.size.height += 0;
+	  
         }
       return frame;
     }
