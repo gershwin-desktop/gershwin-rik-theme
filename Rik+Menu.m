@@ -40,7 +40,7 @@
 }
 - (CGFloat) menuSeparatorHeight
 {
-  return 20;
+  return 1;
 }
 
 - (void) drawMenuRect: (NSRect)rect
@@ -140,6 +140,7 @@
   NSGradient* menuitemgradient = [[NSGradient alloc] initWithStartingColor: selectedBackgroundColor1
                                                                endingColor: selectedBackgroundColor2];
   NSColor * c;
+  [cell setBordered:NO];
   cellFrame = [cell drawingRectForBounds: cellFrame];
 
   if(isHorizontal)
