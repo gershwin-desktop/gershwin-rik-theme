@@ -32,8 +32,9 @@ Rik_OBJC_FILES = \
 		RikScrollerKnobSlotCell.m\
 		RikScrollerArrowCell.m\
 		NSBrowserCell+Rik.m\
-		NSSearchFieldCell+Rik.m
-
+		NSSearchFieldCell+Rik.m\
+		NSCell+Rik.m\
+		NSTextFieldCell+Rik.m
 ADDITIONAL_TOOL_LIBS =
 $(BUNDLE_NAME)_RESOURCE_FILES = \
 	./Resources/ThemeImages\
