@@ -6,7 +6,7 @@
 
 #import "Rik.h"
 
-@interface NSTextFieldCell (RikTheme)
+@interface NSTextFieldCell (RikTheme) 
 {
 }
 @end

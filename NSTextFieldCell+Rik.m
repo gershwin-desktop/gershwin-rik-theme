@@ -59,6 +59,55 @@ titleRect.size.height += 2;
 
 }
 
+// The cell needs to be asjusted also when is selected or edited
+
+
+- (void) selectWithFrame: (NSRect)aRect
+
+                  inView: (NSView*)controlView
+                  editor: (NSText*)textObject
+                delegate: (id)anObject
+                   start: (NSInteger)selStart
+                  length: (NSInteger)selLength
+{
+	if (![self isMemberOfClass:[NSSearchFieldCell class]])
+	{
+		NSRect drawingRect = [self drawingRectForBounds: aRect];
+		drawingRect.origin.x -= 4;
+		drawingRect.size.width -= 0;
+		drawingRect.origin.y -= 6;
+		drawingRect.size.height += 11;
+		[super selectWithFrame:drawingRect inView:controlView editor:textObject delegate:anObject start:selStart length:selLength];
+	}
+	else
+	{
+		[super selectWithFrame:aRect inView:controlView editor:textObject delegate:anObject start:selStart length:selLength];
+	}
+}
+
+- (void) editWithFrame: (NSRect)aRect
+                inView: (NSView*)controlView
+                editor: (NSText*)textObject
+              delegate: (id)anObject
+                 event: (NSEvent*)theEvent
+{
+	if (![self isMemberOfClass:[NSSearchFieldCell class]])
+	{
+		NSRect drawingRect = [self drawingRectForBounds: aRect];
+		drawingRect.origin.x += 4;
+		drawingRect.size.width -= 0; //it was 6. Same in the selectWithFrame:::::: method
+		drawingRect.origin.y -= 6;
+		drawingRect.size.height += 11;
+		[super editWithFrame:drawingRect inView:controlView editor:textObject delegate:anObject event:theEvent];
+	}
+	else
+	{
+		[super editWithFrame:aRect inView:controlView editor:textObject delegate:anObject event:theEvent];
+	}
+
+
+
+}
 
 @end
 
