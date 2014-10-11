@@ -21,7 +21,6 @@
 	cellFrame.size.height += 2;
 	//cellFrame.size.width -= 1;
 	[self _drawEditorWithFrame: cellFrame inView: controlView];
-	NSLog(@"FUORI DALL'IF %u", _cell.in_editing);
   if (_cell.in_editing)
   {
 	cellFrame.origin.y -= 1;
@@ -30,7 +29,6 @@
 
 	[self _drawEditorWithFrame: cellFrame inView: controlView];
 	//titleRect = [self titleRectForBounds: cellFrame];
-	NSLog(@"IF");
 	//titleRect.origin.y -= 10;
   }
   else
@@ -45,7 +43,6 @@
          rectangle otherwise. Note that the type could be different if the
          user has set an image on us, which we just ignore (OS X does so as
          well).*/ 
-NSLog(@"ELSE");
       _cell.type = NSTextCellType;
       titleRect = [self titleRectForBounds: cellFrame];
 	//titleRect.origin.y -= 1;
@@ -61,6 +58,7 @@ titleRect.size.height += 2;
  [[self _drawAttributedString] drawInRect: titleRect];*/
 
 }
+
 
 @end
 

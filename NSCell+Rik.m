@@ -63,4 +63,57 @@
   // to reuse this code while doing their own custom highlighting and
   // prettyfying
 }
+
+// The cell needs to be asjusted also when is selected or edited
+
+- (void) selectWithFrame: (NSRect)aRect
+                  inView: (NSView*)controlView
+                  editor: (NSText*)textObject
+                delegate: (id)anObject
+                   start: (NSInteger)selStart
+                  length: (NSInteger)selLength
+{
+	if (!controlView || !textObject || (_cell.type != NSTextCellType))
+		return;
+
+	NSRect drawingRect = [self drawingRectForBounds: aRect];
+	drawingRect.origin.x -= 4;
+	drawingRect.size.width -= 6;
+	drawingRect.origin.y -= 6;
+	drawingRect.size.height += 3;
+	
+	
+	[self _setupTextWithFrame: drawingRect
+              inView: controlView
+              editor: textObject
+              delegate: anObject
+              range: NSMakeRange(selStart, selLength)];
+}
+
+- (void) editWithFrame: (NSRect)aRect
+                inView: (NSView*)controlView
+                editor: (NSText*)textObject
+              delegate: (id)anObject
+                 event: (NSEvent*)theEvent
+{
+	if (!controlView || !textObject || (_cell.type != NSTextCellType))
+	return;
+
+	NSRect drawingRect = [self drawingRectForBounds: aRect];
+	drawingRect.origin.x += 4;
+	drawingRect.size.width -= 6;
+	drawingRect.origin.y -= 6;
+	drawingRect.size.height += 3;
+
+	[self _setupTextWithFrame: drawingRect
+              inView: controlView
+              editor: textObject
+              delegate: anObject
+              range: NSMakeRange(0, 0)];
+
+	if ([theEvent type] == NSLeftMouseDown)
+	{
+		[textObject mouseDown: theEvent];
+	}
+}
 @end
