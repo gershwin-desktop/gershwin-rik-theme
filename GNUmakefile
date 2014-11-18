@@ -34,7 +34,8 @@ Rik_OBJC_FILES = \
 		NSBrowserCell+Rik.m\
 		NSSearchFieldCell+Rik.m\
 		NSCell+Rik.m\
-		NSTextFieldCell+Rik.m
+		NSTextFieldCell+Rik.m\
+		NSBox+Rik.m
 ADDITIONAL_TOOL_LIBS =
 $(BUNDLE_NAME)_RESOURCE_FILES = \
 	./Resources/ThemeImages\
