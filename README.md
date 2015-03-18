@@ -19,4 +19,6 @@ Soon, more infos. Enjoy!
 
 A pre-release screenshot.
 
+Note: This screenshot is a bit old, now the vertical progressbar indicator fills and looks like the horizontal progress bar indicator.
+
 ![screenshot](https://dl.dropboxusercontent.com/u/17319831/oldscreen.png)
