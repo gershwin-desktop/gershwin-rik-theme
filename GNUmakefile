@@ -35,7 +35,8 @@ Rik_OBJC_FILES = \
 		NSSearchFieldCell+Rik.m\
 		NSCell+Rik.m\
 		NSTextFieldCell+Rik.m\
-		NSBox+Rik.m
+		NSBox+Rik.m\
+		NSPopUpButton+Rik.m
 ADDITIONAL_TOOL_LIBS =
 $(BUNDLE_NAME)_RESOURCE_FILES = \
 	./Resources/ThemeImages\
