@@ -1,3 +1,8 @@
 - In the NSSearchFieldCell class, when clicking on the lens, the text becomes white but it doesn't disappear, just reclicking in the text editor and the text will appear again.
 
-FIX: the text should not disappear while clicking on the lens
+FIX: 
+1) the text should not disappear while clicking on the lens
+
+- NSTextField and NSSearchField should not be resizable in height
+
+- Is NSBox border type settable to the third choice in GORM as default?
