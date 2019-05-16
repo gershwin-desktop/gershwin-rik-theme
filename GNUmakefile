@@ -39,6 +39,7 @@ Rik_OBJC_FILES = \
 		NSPopUpButton+Rik.m
 ADDITIONAL_TOOL_LIBS =
 $(BUNDLE_NAME)_RESOURCE_FILES = \
+	./Resources/ThemeIcon.png\
 	./Resources/ThemeImages\
 	./Resources/ThemeTiles\
 	./Resources/*.clr
