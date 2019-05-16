@@ -34,16 +34,15 @@
         }
         [[defaultbuttoncell controlView] setNeedsDisplay: YES];
     }
-  if (progress >= 1.0)
+  if (defaultbuttoncell && progress >= 1.0)
   {
     reverse = !reverse;
     [self startAnimation];
   }
 }
-
 @end
 
-@interface DefaultButtonAnimationController : NSObject
+@interface DefaultButtonAnimationController : NSObject <NSWindowDelegate>
 
 {
   DefaultButtonAnimation * animation;
@@ -86,6 +85,12 @@
   //[animation stopAnimation];
   //[self startPulse: !animation.reverse];
 }
+
+- (void)windowDidResignKey:(NSNotification *)notification
+{
+    [animation stopAnimation];
+}
+
 @end
 @implementation NSWindow(RikTheme)
 
@@ -145,7 +150,9 @@
   [aCell setKeyEquivalent: @"\r"];
   [aCell setKeyEquivalentModifierMask: 0];
   [aCell setIsDefaultButton: [NSNumber numberWithBool: YES]];
+
   DefaultButtonAnimationController * animationcontroller = [[DefaultButtonAnimationController alloc] initWithButtonCell: aCell];
+  [self setDelegate:animationcontroller];
   [animationcontroller startPulse];
 }
 - (void) animateDefaultButton: (id)sender
