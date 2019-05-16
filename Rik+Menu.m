@@ -27,7 +27,7 @@
 }
 -(CGFloat) menuSubmenuVerticalOverlap
 {
-  return 6;
+  return 0;
 }
 - (CGFloat) menuBarHeight
 {
