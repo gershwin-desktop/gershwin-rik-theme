@@ -6,19 +6,22 @@
 @end
 
 @implementation Rik(RikMenu)
+
 - (NSColor *) menuBorderColor
-{
+{ 
   NSColor *color = [NSColor colorWithCalibratedRed: 0.212 green: 0.184 blue: 0.176 alpha: 1.0];
   return color;
 }
 - (NSColor *) menuBackgroundColor
 {
-  NSColor *color = [NSColor colorWithCalibratedRed: 0.992 green: 0.992 blue: 0.992 alpha: 1.0];
+  NSUserDefaults *theme_defaults = [NSUserDefaults standardUserDefaults];
+  float transparency = [theme_defaults floatForKey:@"RikMenuBarTransparency"];    
+  NSColor *color = [NSColor colorWithCalibratedRed: 0.992 green: 0.992 blue: 0.992 alpha: transparency];
   return color;
 }
 - (NSColor *) menuItemBackgroundColor
 {
-  NSColor *color = [NSColor colorWithCalibratedRed: 0.992 green: 0.992 blue: 0.992 alpha: 0.9];
+  NSColor *color = [NSColor colorWithCalibratedRed: 0.992 green: 0.992 blue: 0.992 alpha: 0.95];
   return color;
 }
 - (CGFloat) menuSubmenuHorizontalOverlap
@@ -61,7 +64,6 @@
   if(horizontal == YES)
     {
       // here the semitrasparent status bar...
-      // TODO the transparency sould be optional
       menuPath = [NSBezierPath bezierPathWithRect:bounds];
       NSColor* fillColor = [self menuBackgroundColor];
       [fillColor setFill];
@@ -118,8 +120,8 @@
   NSRect r = NSIntersectionRect(bounds, dirtyRect);
   NSRectFillUsingOperation(r, NSCompositeClear);
   NSBezierPath * roundedRectanglePath = [NSBezierPath bezierPathWithRoundedRect:r  xRadius: 4 yRadius: 4];
-  NSColor *borderColor = [self menuBorderColor];
-  [borderColor setStroke];
+  //NSColor *borderColor = [self menuBorderColor];
+  //[borderColor setStroke];
   [roundedRectanglePath fill];
   [roundedRectanglePath stroke];
 }
@@ -132,11 +134,11 @@
 {
 
 
-  NSColor * backgroundColor = [self menuBackgroundColor];
+  NSColor * backgroundColor = [self menuItemBackgroundColor];
   NSColor* selectedBackgroundColor1 = [NSColor colorWithCalibratedRed: 0.392 green: 0.533 blue: 0.953 alpha: 1];
   NSColor* selectedBackgroundColor2 = [NSColor colorWithCalibratedRed: 0.165 green: 0.373 blue: 0.929 alpha: 1];
 
-  NSColor* menuItemBackground = [self menuBackgroundColor];
+  NSColor* menuItemBackground = [self menuItemBackgroundColor];
   NSGradient* menuitemgradient = [[NSGradient alloc] initWithStartingColor: selectedBackgroundColor1
                                                                endingColor: selectedBackgroundColor2];
   NSColor * c;
