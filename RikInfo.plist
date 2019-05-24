@@ -8,9 +8,10 @@
     		       );		       
     	GSThemeDetails = "A Theme for GNUstep";
     	GSThemeDomain = {
-		      GSBackHandlesWindowDecorations = 0;
+		      GSBackHandlesWindowDecorations = NO;
 		      NSMenuInterfaceStyle = NSMacintoshInterfaceStyle;
 		      RikMenuBarTransparency = 0.95;
+		      MenuShouldShowIcon = YES;
     		      };
     	GSThemeIcon = "ThemeIcon.png";
 	GSThemeLicense = "";

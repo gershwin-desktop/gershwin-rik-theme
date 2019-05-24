@@ -46,6 +46,13 @@
   return 1;
 }
 
+- (BOOL) menuShouldShowIcon
+{
+  NSUserDefaults *theme_defaults = [NSUserDefaults standardUserDefaults];
+  BOOL MenuShouldShowIcon =   [theme_defaults boolForKey:@"MenuShouldShowIcon"]; 
+  return MenuShouldShowIcon;
+}
+
 - (void) drawMenuRect: (NSRect)rect
          inView: (NSView *)view
    isHorizontal: (BOOL)horizontal
