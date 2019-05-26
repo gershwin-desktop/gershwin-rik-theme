@@ -106,7 +106,7 @@
             return NSMakeSize(4, 4);
           case NSGrooveBorder:
           case NSBezelBorder:
-            return NSMakeSize(4, 4);
+            return NSMakeSize(1, 1);
           case NSNoBorder:
           default:
             return NSZeroSize;
