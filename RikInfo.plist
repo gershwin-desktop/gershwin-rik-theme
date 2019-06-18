@@ -14,6 +14,7 @@
 		      MenuShouldShowIcon = YES;
     		      };
     	GSThemeIcon = "ThemeIcon.png";
+	GSThemePreview = "ThemePreview.png";
 	GSThemeLicense = "";
     	GSThemeTiles = {
     	};

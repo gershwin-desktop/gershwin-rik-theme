@@ -40,6 +40,7 @@ Rik_OBJC_FILES = \
 ADDITIONAL_TOOL_LIBS =
 $(BUNDLE_NAME)_RESOURCE_FILES = \
 	./Resources/ThemeIcon.png\
+	./Resources/ThemePreview.png\
 	./Resources/ThemeImages\
 	./Resources/ThemeTiles\
 	./Resources/*.clr
