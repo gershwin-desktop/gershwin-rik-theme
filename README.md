@@ -11,7 +11,7 @@ The main theme purpose, is to demonstrate that:
 
 1) GNUstep is themable.
 2) GNUstep can looks modern
-3) GNUstep is not OPENSTEP, it follow Cocoa, and it is a Cocoa free and open source reimplementation
+3) GNUstep is not OPENSTEP, it follows Cocoa, and it is a Cocoa free and open source reimplementation
 
 Soon, more infos. Enjoy!
 
