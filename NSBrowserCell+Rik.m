@@ -6,7 +6,7 @@
 
 @implementation Rik(NSBrowserCell)
 - (void) _overrideNSBrowserCellMethod_drawInteriorWithFrame: (NSRect)cellFrame inView: (NSView *)controlView {
-  NSLog(@"_overrideNSBrowserCellMethod_drawInteriorWithFrame:inView:");
+  RIKLOG(@"_overrideNSBrowserCellMethod_drawInteriorWithFrame:inView:");
   NSBrowserCell *xself = (NSBrowserCell*)self;
   [xself RIKdrawInteriorWithFrame:cellFrame inView:controlView];
 }

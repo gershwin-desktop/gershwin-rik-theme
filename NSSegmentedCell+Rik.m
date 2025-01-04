@@ -9,7 +9,7 @@
 // - (NSColor*) textColor
 - (NSColor*) _overrideNSSegmentedCellMethod_textColor
 {
-  NSLog(@"_overrideNSSegmentedCellMethod_textColor");
+  RIKLOG(@"_overrideNSSegmentedCellMethod_textColor");
   //IT DOES NOT WORKS
   NSSegmentedCell *xself = (NSSegmentedCell*) self;
   
@@ -25,7 +25,7 @@
 - (void) _overrideNSSegmentedCellMethod__drawBorderAndBackgroundWithFrame: (NSRect)cellFrame
                                     inView: (NSView*)controlView
 {
-  NSLog(@"_overrideNSSegmentedCellMethod__drawBorderAndBackgroundWithFrame");
+  RIKLOG(@"_overrideNSSegmentedCellMethod__drawBorderAndBackgroundWithFrame");
   NSSegmentedCell *xself = (NSSegmentedCell*) self;
   CGFloat radius = 4;
   cellFrame = NSInsetRect(cellFrame, 0.5, 0.5);
@@ -61,7 +61,7 @@
 // - (void) drawWithFrame: (NSRect)cellFrame inView: (NSView*)controlView
 - (void) _overrideNSSegmentedCellMethod_drawWithFrame: (NSRect)cellFrame inView: (NSView*)controlView
 {
-  NSLog(@"_overrideNSSegmentedCellMethod_drawWithFrame");
+  RIKLOG(@"_overrideNSSegmentedCellMethod_drawWithFrame");
   NSCell *xself = (NSCell*) self;
   if (NSIsEmptyRect(cellFrame))
     return;

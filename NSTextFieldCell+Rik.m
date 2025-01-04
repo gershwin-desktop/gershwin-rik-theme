@@ -29,7 +29,7 @@
 
 @implementation Rik(NSTextFieldCell)
 - (void) _overrideNSTextFieldCellMethod_drawInteriorWithFrame: (NSRect)cellFrame inView: (NSView*)controlView {
-  NSLog(@"_overrideNSTextFieldCellMethod_drawInteriorWithFrame:inView:");
+  RIKLOG(@"_overrideNSTextFieldCellMethod_drawInteriorWithFrame:inView:");
   NSTextFieldCell *xself = (NSTextFieldCell*)self;
   [xself RIKdrawInteriorWithFrame:cellFrame inView:controlView];
 }
@@ -40,7 +40,7 @@
                 delegate: (id)anObject
                    start: (NSInteger)selStart
 		  length: (NSInteger)selLength {
-  NSLog(@"_overrrideNSTextFieldCellMethod_selectWithFrame::::::");
+  RIKLOG(@"_overrrideNSTextFieldCellMethod_selectWithFrame::::::");
   NSTextFieldCell *xself = (NSTextFieldCell*)self;
   [xself selectWithFrame:aRect
 		  inView:controlView
@@ -54,7 +54,7 @@
                 editor: (NSText*)textObject
               delegate: (id)anObject
 		event: (NSEvent*)theEvent {
-  NSLog(@"_overrideNSTextFieldCellMethod_editWithFrame:");
+  RIKLOG(@"_overrideNSTextFieldCellMethod_editWithFrame:");
   NSTextFieldCell *xself = (NSTextFieldCell*)self;
   [xself editWithFrame:aRect
 		inView:controlView

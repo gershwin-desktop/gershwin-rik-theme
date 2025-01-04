@@ -16,13 +16,13 @@
 
 @implementation Rik(NSBox)
 - (void) _overrideNSBoxMethod_drawRect: (NSRect)rect {
-  NSLog(@"_overrideNSBoxMethod_drawRect:");
+  RIKLOG(@"_overrideNSBoxMethod_drawRect:");
   NSBox* xself = (NSBox*)self;
   [xself RIKdrawRect:rect];
 }
 
 - (NSRect) _overrideNSBoxMethod_calcSizesAllowingNegative: (BOOL)aFlag {
-  NSLog(@"_overrideNSBoxMethod_calcSizesAllowingNegative:");
+  RIKLOG(@"_overrideNSBoxMethod_calcSizesAllowingNegative:");
   NSBox* xself = (NSBox*)self;
   return [xself RIKcalcSizesAllowingNegative:aFlag];
 }

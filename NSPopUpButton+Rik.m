@@ -7,7 +7,7 @@
 
 @implementation Rik (NSPopUpButton)
 - (void) _overrideNSPopUpButtonMethod_mouseDown: (NSEvent*)theEvent {
-  NSLog(@"_overrideNSPopUpButtonMethod_mouseDown:");
+  RIKLOG(@"_overrideNSPopUpButtonMethod_mouseDown:");
   NSPopUpButton *xself = (NSPopUpButton*)self;
   [xself RIKmouseDown:theEvent];
 }

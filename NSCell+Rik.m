@@ -12,7 +12,7 @@
 
 @implementation Rik(NSCell)
 - (void) _overrideNSCellMethod_drawInteriorWithFrame: (NSRect)cellFrame inView: (NSView*)controlView {
-  NSLog(@"_overrideNSCellMethod_drawInteriorWithFrame:inView");
+  RIKLOG(@"_overrideNSCellMethod_drawInteriorWithFrame:inView");
   NSCell *xself = (NSCell*) self;
   [xself RIKdrawInteriorWithFrame:cellFrame inView:controlView];
 }

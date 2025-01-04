@@ -25,51 +25,51 @@
 
 @implementation Rik(NSSearchFieldCell)
 - (void) _overrideNSSearchFieldCellMethod_drawWithFrame: (NSRect)cellFrame inView: (NSView*)controlView {
-  NSLog(@"_overrideNSSearchFieldCellMethod_drawWithFrame:inView");
+  RIKLOG(@"_overrideNSSearchFieldCellMethod_drawWithFrame:inView");
   NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
   [xself RIKdrawWithFrame: (NSRect)cellFrame inView: (NSView*)controlView];
 }
 
 - (NSRect) _overrideNSSearchFieldCellMethod_searchTextRectForBounds: (NSRect)rect {
-  NSLog(@"_overrideNSSearchFieldCellMethod_searchTextRectForBounds:");
+  RIKLOG(@"_overrideNSSearchFieldCellMethod_searchTextRectForBounds:");
   NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
   return [xself RIKsearchTextRectForBounds:rect];
 }
 
 - (void) _overrideNSSearchFieldCellMethod__drawBorderAndBackgroundWithFrame: (NSRect)cellFrame
 								     inView: (NSView*)controlView {
-  NSLog(@"_overrideNSSearchFieldCellMethod__drawBorderAndBackgroundWithFrame:inView:");
+  RIKLOG(@"_overrideNSSearchFieldCellMethod__drawBorderAndBackgroundWithFrame:inView:");
   NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
   [xself _RIKdrawBorderAndBackgroundWithFrame:cellFrame inView:controlView];
 }
 
 - (void) _overrideNSSearchFieldCellMethod_drawInteriorWithFrame: (NSRect)cellFrame inView: (NSView*)controlView {
-  NSLog(@"_overrideNSSearchFieldCellMethod_drawInteriorWithFrame:inView:");
+  RIKLOG(@"_overrideNSSearchFieldCellMethod_drawInteriorWithFrame:inView:");
   NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
   [xself RIKdrawInteriorWithFrame:cellFrame inView:controlView];
 }
 
 - (void) _overrideNSSearchFieldCellMethod__drawEditorWithFrame: (NSRect)cellFrame
 							inView: (NSView *)controlView {
-  NSLog(@"_overrideNSSearchFieldCellMethod__drawEditorWithFrame:inView:");
+  RIKLOG(@"_overrideNSSearchFieldCellMethod__drawEditorWithFrame:inView:");
   NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
   [xself _RIKdrawEditorWithFrame:cellFrame inView:controlView];
 }
 
 - (NSRect) _overrideNSSearchFieldCellMethod_titleRectForBounds: (NSRect)theRect {
-  NSLog(@"_overrideNSSearchFieldCellMethod_titleRectForBounds:");
+  RIKLOG(@"_overrideNSSearchFieldCellMethod_titleRectForBounds:");
   NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
   return [xself RIKtitleRectForBounds:theRect];
 }
 
 - (NSRect) _overrideNSSearchFieldCellMethod_searchButtonRectForBounds: (NSRect)rect {
-  NSLog(@"_overrideNSSearchFieldCellMethod_searchButtonRectForBounds:");
+  RIKLOG(@"_overrideNSSearchFieldCellMethod_searchButtonRectForBounds:");
   NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
   return [xself RIKsearchButtonRectForBounds:rect];  
 }
 
 - (NSRect) _overrideNSSearchFieldCellMethod_cancelButtonRectForBounds: (NSRect)rect {
-  NSLog(@"_overrideNSSearchFieldCellMethod_cancelButtonRectForBounds:");
+  RIKLOG(@"_overrideNSSearchFieldCellMethod_cancelButtonRectForBounds:");
   NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
   return [xself RIKcancelButtonRectForBounds:rect];
 }

@@ -113,7 +113,7 @@
 {
   RikWindowButton *newButton;
 
-  NSLog(@"NSWindow+Rik standardWindowButton:forStyleMask:");
+  RIKLOG(@"NSWindow+Rik standardWindowButton:forStyleMask:");
 
   switch (button)
     {
@@ -160,7 +160,7 @@
 }
 
 - (void) _overrideNSWindowMethod_setDefaultButtonCell: (NSButtonCell *)aCell {
-  NSLog(@"_overrideNSWindowMethod_setDefaultButtonCell:");
+  RIKLOG(@"_overrideNSWindowMethod_setDefaultButtonCell:");
   NSWindow *xself = (NSWindow*)self;
   [xself RIKsetDefaultButtonCell:aCell];
 }
