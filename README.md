@@ -45,6 +45,8 @@ The above code then becomes this.
 
 ## GSTheme bug
 
+(Note: This is now fixed in https://github.com/gnustep/libs-gui/pull/325 Jan 2, 2025.)
+
 For the `_overrideXXXMethod_yyy` facility to work, `GSTheme.m` needs to be fixed.
 
 The following two lines
