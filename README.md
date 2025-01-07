@@ -63,6 +63,9 @@ memcpy(buf, name + 9, (ptr - name) - 9);
 buf[(ptr - name) - 9] = '\0';
 ```
 
+## Demonstration Test Program
+
+![TestDrawing screenshot](./TestDrawing-screenshot.png)
 
 rik.theme
 =========
