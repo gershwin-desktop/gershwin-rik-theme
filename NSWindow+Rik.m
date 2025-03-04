@@ -108,7 +108,7 @@
 
 // NSWindow.m standardWindowButton:forStyleMask: defers to the theme which
 // implements this method (in the theme class).
-+ (NSButton *) standardWindowButton: (NSWindowButton)button
+- (NSButton *) standardWindowButton: (NSWindowButton)button
                        forStyleMask: (NSUInteger) mask
 {
   RikWindowButton *newButton;
