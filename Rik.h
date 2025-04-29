@@ -10,6 +10,9 @@
 #endif
 
 @interface Rik: GSTheme
+{
+    id menuRegistry;
+}
 + (NSColor *) controlStrokeColor;
 - (void) drawPathButton: (NSBezierPath*) path
                      in: (NSCell*)cell
