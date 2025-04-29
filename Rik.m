@@ -7,6 +7,9 @@
 @interface Rik(RikButton)
 - (NSColor*) buttonColorInCell:(NSCell*) cell forState: (GSThemeControlState) state;
 @end
+
+// cache the DBusMenu bundle’s principal class
+static Class _menuRegistryClass;
   
 @implementation Rik
 
