@@ -132,10 +132,11 @@
         [newButton setAction: @selector(miniaturize:)];
         break;
 
-      case NSWindowZoomButton:
-        // FIXME
+    case NSWindowZoomButton:
         newButton = [[RikWindowButton alloc] init];
         [newButton setBaseColor: [NSColor colorWithCalibratedRed: 0.322 green: 0.778 blue: 0.244 alpha: 1]];
+[newButton setImage: [NSImage imageNamed: @"common_Miniaturize"]];
+[newButton setAlternateImage: [NSImage imageNamed: @"common_MiniaturizeH"]];
         [newButton setAction: @selector(zoom:)];
         break;
 
