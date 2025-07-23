@@ -22,6 +22,7 @@
 {
     id menuRegistry;                          // existing DBusMenu registry
     id<GSMenuPanelService> panelService;      // Panel service connection
+    NSConnection *panelConnection;            // Connection object to keep alive
     NSString *currentAppId;                   // current app identifier
     NSTimer *connectionRetryTimer;            // timer for panel connection retries
 }

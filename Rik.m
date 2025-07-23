@@ -83,6 +83,9 @@ static Class _menuRegistryClass;
     [connectionRetryTimer invalidate];
     [connectionRetryTimer release];
   }
+  if (panelConnection) {
+    [panelConnection release];
+  }
   [super dealloc];
 }
 
@@ -90,44 +93,84 @@ static Class _menuRegistryClass;
 
 - (void)connectToPanelService
 {
+  // Don't connect to ourselves if we're the panel app
+  NSString *processName = [[[NSProcessInfo processInfo] processName] lowercaseString];
+  if ([processName isEqualToString:@"panel"]) {
+    NSLog(@"Rik: Skipping panel connection - we ARE the panel");
+    return;
+  }
+  
   @try {
     NSConnection *connection = [NSConnection connectionWithRegisteredName:@"GNUstepMenuPanel" host:nil];
     if (connection) {
-      panelService = [connection rootProxy];
-      [panelService setProtocolForProxy:@protocol(GSMenuPanelService)];
+      NSLog(@"Rik: Got connection: %@", connection);
       
-      [panelService registerApplication:currentAppId];
-      
-      NSLog(@"Rik theme connected to menu panel service for app %@", currentAppId);
-      
-      if (connectionRetryTimer) {
-        [connectionRetryTimer invalidate];
-        [connectionRetryTimer release];
-        connectionRetryTimer = nil;
+      // Store the connection separately to keep it alive
+      if (panelConnection) {
+        [panelConnection release];
       }
+      panelConnection = [connection retain];
       
-      NSMenu *mainMenu = [NSApp mainMenu];
-      if (mainMenu && [self shouldUseDistributedMenu:mainMenu]) {
-        [panelService setMainMenu:mainMenu forApplication:currentAppId];
-      }
-    } else {
-      panelService = nil;
-      // Only log once to avoid spam
-      if (!connectionRetryTimer) {
-        NSLog(@"Panel service not available, will retry...");
-      }
+      // Get the root proxy
+      id rootProxy = [connection rootProxy];
+      NSLog(@"Rik: Got root proxy: %@ of class: %@", rootProxy, [rootProxy class]);
       
-      if (!connectionRetryTimer) {
-        connectionRetryTimer = [[NSTimer scheduledTimerWithTimeInterval:5.0
-                                                                 target:self
-                                                               selector:@selector(retryPanelConnection:)
-                                                               userInfo:nil
-                                                                repeats:YES] retain];
+      if (rootProxy) {
+        // Set protocol first
+        [rootProxy setProtocolForProxy:@protocol(GSMenuPanelService)];
+        
+        // Test with a simple method call
+        @try {
+          if ([rootProxy respondsToSelector:@selector(registerApplication:)]) {
+            NSLog(@"Rik: Proxy responds to registerApplication, testing...");
+            [rootProxy registerApplication:currentAppId];
+            
+            // Only assign if test succeeds
+            panelService = rootProxy;
+            NSLog(@"Rik: Successfully connected to panel service for app %@", currentAppId);
+            
+            if (connectionRetryTimer) {
+              [connectionRetryTimer invalidate];
+              [connectionRetryTimer release];
+              connectionRetryTimer = nil;
+            }
+            
+            // DEBUG: Check initial menu state
+            NSMenu *mainMenu = [NSApp mainMenu];
+            NSLog(@"Rik: Initial menu check - mainMenu: %@", mainMenu);
+            NSLog(@"Rik: shouldUseDistributedMenu: %@", [self shouldUseDistributedMenu:mainMenu] ? @"YES" : @"NO");
+            
+            if (mainMenu && [self shouldUseDistributedMenu:mainMenu]) {
+              NSLog(@"Rik: Sending initial menu to panel");
+              [self sendMenuToPanel:mainMenu];
+            } else {
+              NSLog(@"Rik: Not sending initial menu - will wait for macintoshMenuDidChange");
+            }
+            
+            return; // Success!
+          } else {
+            NSLog(@"Rik: Proxy doesn't respond to registerApplication");
+          }
+        }
+        @catch (NSException *testException) {
+          NSLog(@"Rik: Test call failed: %@", testException);
+        }
       }
+    }
+    
+    // Connection failed - set up retry
+    panelService = nil;
+    if (!connectionRetryTimer) {
+      NSLog(@"Rik: Panel connection failed, will retry in 3 seconds...");
+      connectionRetryTimer = [[NSTimer scheduledTimerWithTimeInterval:3.0
+                                                               target:self
+                                                             selector:@selector(retryPanelConnection:)
+                                                             userInfo:nil
+                                                              repeats:YES] retain];
     }
   }
   @catch (NSException *exception) {
-    NSLog(@"Exception connecting to panel service: %@", exception);
+    NSLog(@"Rik: Exception connecting to panel service: %@", exception);
     panelService = nil;
   }
 }
@@ -148,14 +191,119 @@ static Class _menuRegistryClass;
   @catch (NSException *exception) {
     NSLog(@"Exception disconnecting from panel service: %@", exception);
   }
+  
+  if (panelConnection) {
+    [panelConnection release];
+    panelConnection = nil;
+  }
 }
 
 - (BOOL)shouldUseDistributedMenu:(NSMenu*)menu
 {
+  // Don't use distributed menu if we're the panel app
+  NSString *processName = [[[NSProcessInfo processInfo] processName] lowercaseString];
+  if ([processName isEqualToString:@"panel"]) {
+    NSLog(@"Rik: shouldUseDistributedMenu: NO - we are panel");
+    return NO;
+  }
+  
+  if (!panelConnection) {
+    NSLog(@"Rik: shouldUseDistributedMenu: NO - no panel connection");
+    return NO;
+  }
+  
+  // Get a fresh proxy each time to avoid corruption
+  id freshProxy = [panelConnection rootProxy];
+  if (!freshProxy) {
+    NSLog(@"Rik: shouldUseDistributedMenu: NO - can't get fresh proxy");
+    return NO;
+  }
+  
+  // Set protocol on the fresh proxy
+  @try {
+    [freshProxy setProtocolForProxy:@protocol(GSMenuPanelService)];
+  }
+  @catch (NSException *e) {
+    NSLog(@"Rik: shouldUseDistributedMenu: NO - protocol setting failed: %@", e);
+    return NO;
+  }
+  
+  if (![freshProxy respondsToSelector:@selector(setMainMenu:forApplication:)]) {
+    NSLog(@"Rik: shouldUseDistributedMenu: NO - fresh proxy doesn't respond to setMainMenu");
+    return NO;
+  }
+  
+  // Update our stored proxy with the fresh one
+  panelService = freshProxy;
+  
+  if ([NSApp mainMenu] != menu) {
+    NSLog(@"Rik: shouldUseDistributedMenu: NO - not main menu (is: %@, main: %@)", menu, [NSApp mainMenu]);
+    return NO;
+  }
+  
   NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
-  return (panelService != nil && 
-          [NSApp mainMenu] == menu && 
-          style == NSMacintoshInterfaceStyle);
+  if (style != NSMacintoshInterfaceStyle) {
+    NSLog(@"Rik: shouldUseDistributedMenu: NO - not Macintosh style (is: %d)", style);
+    return NO;
+  }
+  
+  NSLog(@"Rik: shouldUseDistributedMenu: YES - all conditions met with fresh proxy");
+  return YES;
+}
+
+- (void)sendMenuToPanel:(NSMenu*)menu
+{
+  @try {
+    NSLog(@"Rik: *** SENDING MENU TO PANEL *** for app %@", currentAppId);
+    NSLog(@"Rik: Menu title: '%@', items: %lu", [menu title], (unsigned long)[[menu itemArray] count]);
+    
+    // Get a fresh proxy to avoid corruption
+    id freshProxy = [panelConnection rootProxy];
+    if (!freshProxy) {
+      NSLog(@"Rik: Failed to get fresh proxy for menu sending");
+      return;
+    }
+    
+    [freshProxy setProtocolForProxy:@protocol(GSMenuPanelService)];
+    
+    [freshProxy setMainMenu:menu forApplication:currentAppId];
+    
+    // Force hide all local menu display
+    [self forceHideAllMenuViews:menu];
+    
+    NSLog(@"Rik: Menu sent and local views hidden");
+  }
+  @catch (NSException *menuException) {
+    NSLog(@"Rik: Failed to send menu to panel: %@", menuException);
+  }
+}
+
+- (void)forceHideAllMenuViews:(NSMenu*)menu
+{
+    if (!menu) return;
+    
+    // Hide the menu's window completely
+    NSWindow *menuWindow = [menu window];
+    if (menuWindow) {
+        NSLog(@"Rik: Force hiding menu window: %@", menuWindow);
+        [menuWindow orderOut:nil];
+        [menuWindow setLevel:-1000]; // Send to back
+    }
+    
+    // Hide the menu view
+    NSMenuView *menuView = [menu menuRepresentation];
+    if (menuView) {
+        NSLog(@"Rik: Force hiding menu view: %@", menuView);
+        [menuView setHidden:YES];
+        [menuView removeFromSuperview];
+    }
+    
+    // Hide submenu views recursively
+    for (NSMenuItem *item in [menu itemArray]) {
+        if ([item hasSubmenu]) {
+            [self forceHideAllMenuViews:[item submenu]];
+        }
+    }
 }
 
 #pragma mark - Notification Handlers
@@ -163,8 +311,14 @@ static Class _menuRegistryClass;
 - (void)applicationDidBecomeActive:(NSNotification*)notification
 {
   @try {
-    if (panelService) {
+    if (panelService && [panelService respondsToSelector:@selector(applicationDidBecomeActive:)]) {
       [panelService applicationDidBecomeActive:currentAppId];
+      
+      // Force hide any menu windows when we become active
+      NSMenu *mainMenu = [NSApp mainMenu];
+      if (mainMenu && [self shouldUseDistributedMenu:mainMenu]) {
+        [self forceHideAllMenuViews:mainMenu];
+      }
     }
   }
   @catch (NSException *exception) {
@@ -175,7 +329,7 @@ static Class _menuRegistryClass;
 - (void)applicationDidResignActive:(NSNotification*)notification
 {
   @try {
-    if (panelService) {
+    if (panelService && [panelService respondsToSelector:@selector(applicationDidResignActive:)]) {
       [panelService applicationDidResignActive:currentAppId];
     }
   }
@@ -188,17 +342,18 @@ static Class _menuRegistryClass;
 {
   NSMenu *menu = [notification object];
   
+  NSLog(@"Rik: macintoshMenuDidChange called for menu: %@", menu);
+  NSLog(@"Rik: Main menu is: %@", [NSApp mainMenu]);
+  NSLog(@"Rik: Menu == main menu: %@", ([NSApp mainMenu] == menu) ? @"YES" : @"NO");
+  
   if ([NSApp mainMenu] == menu) {
     // Check for distributed menu first
     if ([self shouldUseDistributedMenu:menu]) {
-      @try {
-        [panelService setMainMenu:menu forApplication:currentAppId];
-        return;
-      }
-      @catch (NSException *exception) {
-        NSLog(@"Exception sending menu to panel: %@", exception);
-        // Fall through to existing logic
-      }
+      NSLog(@"Rik: Calling sendMenuToPanel from macintoshMenuDidChange");
+      [self sendMenuToPanel:menu];
+      return;
+    } else {
+      NSLog(@"Rik: Not using distributed menu for this change");
     }
     
     // Existing DBus menu logic
@@ -208,6 +363,8 @@ static Class _menuRegistryClass;
         [self setMenu: menu forWindow: keyWindow];
       }
     }
+  } else {
+    NSLog(@"Rik: Ignoring menu change - not main menu");
   }
 }
 
@@ -237,6 +394,7 @@ static Class _menuRegistryClass;
 {
   // Check for distributed menu first
   if ([self shouldUseDistributedMenu:m]) {
+    [self sendMenuToPanel:m];
     return;
   }
   
@@ -260,16 +418,9 @@ static Class _menuRegistryClass;
 {
   // Check for distributed menu first
   if ([self shouldUseDistributedMenu:menu]) {
-    @try {
-      if (panelService) {
-        [panelService setMainMenu:menu forApplication:currentAppId];
-      }
-      return;
-    }
-    @catch (NSException *exception) {
-      NSLog(@"Exception updating panel menu: %@", exception);
-      // Fall through to existing logic
-    }
+    NSLog(@"Rik: updateAllWindowsWithMenu - sending to panel, NOT updating windows");
+    [self sendMenuToPanel:menu];
+    return; // CRITICAL: Don't call super - prevent any local display
   }
   
   [super updateAllWindowsWithMenu: menu];
@@ -279,7 +430,8 @@ static Class _menuRegistryClass;
 {
   // Check for distributed menu first
   if ([self shouldUseDistributedMenu:menu]) {
-    return NSZeroRect;
+    NSLog(@"Rik: modifyRect returning NSZeroRect for distributed menu");
+    return NSZeroRect; // Return zero rect to prevent window creation
   }
   
   NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
@@ -296,7 +448,8 @@ static Class _menuRegistryClass;
 {
   // Check for distributed menu first
   if ([self shouldUseDistributedMenu:menu]) {
-    return NO;
+    NSLog(@"Rik: proposedVisibility returning NO for distributed menu");
+    return NO; // Absolutely no local visibility
   }
   
   NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
