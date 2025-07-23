@@ -8,7 +8,7 @@
 - (NSColor*) buttonColorInCell:(NSCell*) cell forState: (GSThemeControlState) state;
 @end
 
-// cache the DBusMenu bundle’s principal class
+// cache the DBusMenu bundle's principal class
 static Class _menuRegistryClass;
   
 @implementation Rik
@@ -46,8 +46,35 @@ static Class _menuRegistryClass;
     {
       // only D-Bus menu registry initialization here
       menuRegistry = [[self _findDBusMenuRegistryClass] new];
+      
+      // Add notification observer for menu changes
+      [[NSNotificationCenter defaultCenter] 
+        addObserver: self
+           selector: @selector(macintoshMenuDidChange:)
+               name: @"NSMacintoshMenuDidChangeNotification"
+             object: nil];
     }
   return self;
+}
+
+- (void) dealloc
+{
+  [[NSNotificationCenter defaultCenter] removeObserver: self];
+  [super dealloc];
+}
+
+- (void) macintoshMenuDidChange: (NSNotification*)notification
+{
+  NSMenu *menu = [notification object];
+  
+  if (([NSApp mainMenu] == menu) && menuRegistry != nil)
+    {
+      NSWindow *keyWindow = [NSApp keyWindow];
+      if (keyWindow != nil)
+        {
+          [self setMenu: menu forWindow: keyWindow];
+        }
+    }
 }
 
 + (NSColor *) controlStrokeColor
@@ -58,6 +85,7 @@ static Class _menuRegistryClass;
                                            blue: 0.4
                                           alpha: 1]);
 }
+
 - (void) drawPathButton: (NSBezierPath*) path
                      in: (NSCell*)cell
 			            state: (GSThemeControlState) state
@@ -71,12 +99,51 @@ static Class _menuRegistryClass;
   [path stroke];
 }
 
-- (void)setMenu:(NSMenu*)menu forWindow:(NSWindow*)window
+- (void)setMenu:(NSMenu*)m forWindow:(NSWindow*)w
 {
-  if (menuRegistry)
-    [menuRegistry setMenu:menu forWindow:window];
-  else
-    [super setMenu:menu forWindow:window];
+  if (nil != menuRegistry && m != nil && [m numberOfItems] > 0)
+    {
+      @try 
+        {
+          [menuRegistry setMenu: m forWindow: w];
+        }
+      @catch (NSException *exception)
+        {
+        }
+    }
+  else if (nil == menuRegistry)
+    {
+      [super setMenu: m forWindow: w];
+    }
+}
+
+- (void)updateAllWindowsWithMenu: (NSMenu*)menu
+{
+  [super updateAllWindowsWithMenu: menu];
+}
+
+- (NSRect)modifyRect: (NSRect)rect forMenu: (NSMenu*)menu isHorizontal: (BOOL)horizontal
+{
+  NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
+  
+  if (style == NSMacintoshInterfaceStyle && menuRegistry != nil && ([NSApp mainMenu] == menu))
+    {
+      return NSZeroRect;
+    }
+  
+  return [super modifyRect: rect forMenu: menu isHorizontal: horizontal];
+}
+
+- (BOOL)proposedVisibility: (BOOL)visibility forMenu: (NSMenu*)menu
+{
+  NSInterfaceStyle style = NSInterfaceStyleForKey(@"NSMenuInterfaceStyle", nil);
+  
+  if (style == NSMacintoshInterfaceStyle && menuRegistry != nil && ([NSApp mainMenu] == menu))
+    {
+      return NO;
+    }
+  
+  return [super proposedVisibility: visibility forMenu: menu];
 }
 
 @end
