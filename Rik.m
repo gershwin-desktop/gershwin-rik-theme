@@ -8,45 +8,12 @@
 - (NSColor*) buttonColorInCell:(NSCell*) cell forState: (GSThemeControlState) state;
 @end
 
-// cache the DBusMenu bundle's principal class
-static Class _menuRegistryClass;
-  
 @implementation Rik
-
-- (Class)_findDBusMenuRegistryClass
-{
-  NSString   *path;
-  NSBundle   *bundle;
-  NSArray    *paths = NSSearchPathForDirectoriesInDomains(
-                        NSLibraryDirectory, NSAllDomainsMask, YES);
-  NSUInteger  count = [paths count];
-
-  if (Nil != _menuRegistryClass)
-    return _menuRegistryClass;
-
-  while (count-- > 0)
-    {
-      path = [paths objectAtIndex:count];
-      path = [path stringByAppendingPathComponent:@"Bundles"];
-      path = [path stringByAppendingPathComponent:@"DBusMenu"];
-      path = [path stringByAppendingPathExtension:@"bundle"];
-      bundle = [NSBundle bundleWithPath:path];
-      if (bundle)
-        {
-          if ((_menuRegistryClass = [bundle principalClass]) != Nil)
-            break;
-        }
-    }
-  return _menuRegistryClass;
-}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {
   if ((self = [super initWithBundle:bundle]) != nil)
     {
-      // only D-Bus menu registry initialization here
-      menuRegistry = [[self _findDBusMenuRegistryClass] new];
-      
       // Panel service integration
       currentAppId = [[NSString stringWithFormat:@"%d", [[NSProcessInfo processInfo] processIdentifier]] retain];
       [self connectToPanelService];
