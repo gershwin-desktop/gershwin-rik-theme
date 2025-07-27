@@ -14,9 +14,8 @@
 }
 - (NSColor *) menuBackgroundColor
 {
-  NSUserDefaults *theme_defaults = [NSUserDefaults standardUserDefaults];
-  float transparency = [theme_defaults floatForKey:@"RikMenuBarTransparency"];    
-  NSColor *color = [NSColor colorWithCalibratedRed: 0.992 green: 0.992 blue: 0.992 alpha: transparency];
+  // Remove transparency - always return fully opaque color
+  NSColor *color = [NSColor colorWithCalibratedRed: 0.992 green: 0.992 blue: 0.992 alpha: 1.0];
   return color;
 }
 - (NSColor *) menuItemBackgroundColor
