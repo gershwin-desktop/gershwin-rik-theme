@@ -119,7 +119,7 @@
     {
       case NSWindowCloseButton:
         newButton = [[RikWindowButton alloc] init];
-        [newButton setBaseColor: [NSColor colorWithCalibratedRed: 0.698 green: 0.427 blue: 1.00 alpha: 1]];
+        [newButton setBaseColor: [NSColor colorWithCalibratedRed: 0.97 green: 0.26 blue: 0.23 alpha: 1.0]];
         [newButton setImage: [NSImage imageNamed: @"common_Close"]];
         [newButton setAlternateImage: [NSImage imageNamed: @"common_CloseH"]];
         [newButton setAction: @selector(performClose:)];
