@@ -7,7 +7,7 @@
 
 #define TITLE_HEIGHT 24.0
 #define RESIZE_HEIGHT 9.0
-#define WINDOW_CORNER_RADIUS 6
+#define WINDOW_CORNER_RADIUS 0
 
 @implementation Rik(RikWindowDecoration)
 
