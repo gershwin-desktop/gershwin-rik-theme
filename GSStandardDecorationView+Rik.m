@@ -33,17 +33,22 @@
       resizeBarRect = NSMakeRect(0.0, 0.0, [self bounds].size.width, [theme resizebarHeight]);
     }
   if (hasCloseButton)
-    {
-      closeButtonRect = NSMakeRect(
-      [self bounds].size.width - TITLEBAR_BUTTON_SIZE - TITLEBAR_PADDING_RIGHT, [self bounds].size.height -  TITLEBAR_BUTTON_SIZE - TITLEBAR_PADDING_TOP, TITLEBAR_BUTTON_SIZE, TITLEBAR_BUTTON_SIZE);
-      [closeButton setFrame: closeButtonRect];
-    }
+  {
+    closeButtonRect = NSMakeRect(
+      TITLEBAR_PADDING_LEFT,
+      [self bounds].size.height - TITLEBAR_BUTTON_SIZE - TITLEBAR_PADDING_TOP,
+      TITLEBAR_BUTTON_SIZE, TITLEBAR_BUTTON_SIZE);
+    [closeButton setFrame: closeButtonRect];
+  }
+
   if (hasMiniaturizeButton)
-    {
-      miniaturizeButtonRect = NSMakeRect(
-      TITLEBAR_PADDING_LEFT, [self bounds].size.height - TITLEBAR_BUTTON_SIZE - TITLEBAR_PADDING_TOP, TITLEBAR_BUTTON_SIZE, TITLEBAR_BUTTON_SIZE);
-      [miniaturizeButton setFrame: miniaturizeButtonRect];
-    }
+  {
+    miniaturizeButtonRect = NSMakeRect(
+      TITLEBAR_PADDING_LEFT + TITLEBAR_BUTTON_SIZE + 4, // 4px padding between buttons
+      [self bounds].size.height - TITLEBAR_BUTTON_SIZE - TITLEBAR_PADDING_TOP,
+      TITLEBAR_BUTTON_SIZE, TITLEBAR_BUTTON_SIZE);
+    [miniaturizeButton setFrame: miniaturizeButtonRect];
+  }
 }
 
 @end
