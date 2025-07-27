@@ -33,7 +33,7 @@
 }
 - (CGFloat) menuBarHeight
 {
-  return 24;
+  return 28;
 }
 
 - (CGFloat) menuItemHeight
