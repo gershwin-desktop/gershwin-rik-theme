@@ -11,6 +11,8 @@
 		  NSScrollViewInterfaceStyle = NSMacintoshInterfaceStyle;
   	          NSScrollerInterfaceStyle = NSMacintoshInterfaceStyle;
 	          NSMenuInterfaceStyle = NSMacintoshInterfaceStyle;
+                  MenuShouldShowIcon = YES;
+                  GSSuppressAppIcon = YES;
     		      };
     	GSThemeIcon = "ThemeIcon.png";
 	GSThemePreview = "ThemePreview.png";
