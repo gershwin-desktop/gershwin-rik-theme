@@ -5,3 +5,7 @@ Rik.theme/
 *.swp
 .vimrc
 tags
+*.core
+*Test*
+*_test.*
+*.test
