@@ -34,6 +34,7 @@ Rik_OBJC_FILES = \
 		NSBrowserCell+Rik.m\
 		NSSearchFieldCell+Rik.m\
 		NSCell+Rik.m\
+		NSButtonCell+Rik.m\
 		NSTextFieldCell+Rik.m\
 		NSBox+Rik.m\
 		NSPopUpButton+Rik.m
