@@ -6,7 +6,8 @@
  * 1. Intercept common_ret/common_retH images and hide them
  * 2. Automatically set buttons with these images as default buttons
  * 3. Enable pulsing animation for default buttons
- * While 2. and 3. could be done by the application,
+ * 4. Make default buttons appear selected with highlighted border
+ * While 2, 3, and 4 could be done by the application,
  * most applications will not do this, so we handle it here. 
  */
 
@@ -20,6 +21,7 @@
 - (NSImage *) RIKalternateImage;
 - (BOOL) isProcessingReturnButton;
 - (void) setIsProcessingReturnButton:(BOOL)processing;
+- (void) makeButtonSelectedAndHighlighted;
 @end
 
 @implementation Rik(NSButtonCell)
@@ -178,8 +180,10 @@ static NSMutableSet *defaultButtonSetCells = nil;
 // Enable pulsing animation for default buttons
 - (void) enablePulsing
 {
+  RIKLOG(@"NSButtonCell+Rik: Enabling pulsing for button cell %p", self);
   [self setIsDefaultButton:@YES];
   [self setPulseProgress:@0];
+  [self makeButtonSelectedAndHighlighted];
   [self trySetAsDefaultButtonWithStrategy];
 }
 
@@ -232,8 +236,10 @@ static NSMutableSet *defaultButtonSetCells = nil;
     }
     
     if (window) {
+      RIKLOG(@"NSButtonCell+Rik: Found window %p, setting default button cell", window);
       [self markAsDefaultButtonSet];
       [window setDefaultButtonCell:self];
+      [self makeButtonSelectedAndHighlighted];
       return YES;
     }
   }
@@ -248,8 +254,10 @@ static NSMutableSet *defaultButtonSetCells = nil;
   
   for (NSWindow *candidateWindow in windows) {
     if ([self findButtonWithCellInWindow:candidateWindow]) {
+      RIKLOG(@"NSButtonCell+Rik: Found button in window %p, setting default button cell", candidateWindow);
       [self markAsDefaultButtonSet];
       [candidateWindow setDefaultButtonCell:self];
+      [self makeButtonSelectedAndHighlighted];
       return YES;
     }
   }
@@ -289,6 +297,38 @@ static NSMutableSet *defaultButtonSetCells = nil;
   }
   
   return NO;
+}
+
+// Make the button appear selected and highlighted with thicker border
+- (void) makeButtonSelectedAndHighlighted
+{
+  RIKLOG(@"NSButtonCell+Rik: Making button cell %p selected and highlighted", self);
+  
+  // Set the cell as highlighted to get the thicker border
+  [self setHighlighted:YES];
+  
+  // Mark the button as selected/pressed state for visual feedback
+  [self setState:NSOnState];
+  
+  // Ensure the cell shows as focused to get the focus ring
+  [self setShowsFirstResponder:YES];
+  
+  // Force the control view to update its display
+  NSView *controlView = [self controlView];
+  if (controlView) {
+    RIKLOG(@"NSButtonCell+Rik: Refreshing control view %p display", controlView);
+    [controlView setNeedsDisplay:YES];
+    
+    // Try to make the button the first responder if it's a button
+    if ([controlView isKindOfClass:[NSButton class]]) {
+      NSButton *button = (NSButton*)controlView;
+      NSWindow *window = [button window];
+      if (window) {
+        RIKLOG(@"NSButtonCell+Rik: Making button %p first responder in window %p", button, window);
+        [window makeFirstResponder:button];
+      }
+    }
+  }
 }
 
 @end
