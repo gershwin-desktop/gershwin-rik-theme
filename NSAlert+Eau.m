@@ -610,7 +610,7 @@ static void eauAlertSetStopping(id panel, BOOL val)
 
 - (NSInteger) runModal
 {
-    // NSLog(@"Eau: EauAlertPanel runModal called");
+    NSLog(@"Eau: EauAlertPanel runModal — title=\"%@\"", [self title]);
     
     // Beep when alert is displayed (diagnostics)
     NSApplication *app = [NSApplication sharedApplication];
@@ -1438,7 +1438,9 @@ static void setKeyEquivalent(NSButton *button)
 // - Avoids KVC retain/release side effects on _window
 - (NSInteger) eau_runModal
 {
-    // NSLog(@"Eau: NSAlert eau_runModal called");
+    NSLog(@"Eau: NSAlert eau_runModal — messageText=\"%@\" informativeText=\"%@\"",
+          [self messageText], [self informativeText]);
+    NSLog(@"Eau: NSAlert caller stack: %@", [NSThread callStackSymbols]);
     @try {
 
     if (![NSThread isMainThread])
@@ -1729,7 +1731,10 @@ static void setKeyEquivalent(NSButton *button)
             break;
     }
     
-    // NSLog(@"Eau: Setting up panel with title and buttons");
+    if (messageText == nil) {
+        NSLog(@"Eau: NSAlert with nil messageText (title will be \"Alert\") — informativeText=%@, self=%@",
+              informativeText, self);
+    }
     @try {
         [panel setTitleBar: title
                       icon: icon

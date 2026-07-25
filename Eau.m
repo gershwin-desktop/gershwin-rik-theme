@@ -41,6 +41,7 @@ static BOOL EauEnvironmentContainsAppMenuToken(void)
 // Expose UIBridge-friendly API from theme so the UIBridge server can talk to the
 // theme process directly (avoids needing to inject an agent into each app).
 #import "UIBridgeProtocol.h"
+#import "Eau+DragTool.h"
 
 // Implementation of safe color conversion helper
 NSColor *EauSafeCalibratedRGB(NSColor *c)
@@ -137,6 +138,11 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
 - (BOOL)invokeMenuItem:(NSString *)objID {
   return [theme invokeMenuItem:objID];
 }
+
+- (void)enableDragMode { [theme enableDragMode]; }
+- (void)disableDragMode { [theme disableDragMode]; }
+- (BOOL)isDragModeEnabled { return [theme isDragModeEnabled]; }
+- (bycopy NSString *)dragDeltaFilePath { return [theme dragDeltaFilePath]; }
 
 @end
 

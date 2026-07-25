@@ -24,4 +24,10 @@
 - (bycopy NSString *)listMenusJSON;
 - (BOOL)invokeMenuItem:(NSString *)objID;
 
+// Drag mode control
+- (void)enableDragMode;
+- (void)disableDragMode;
+- (BOOL)isDragModeEnabled;
+- (bycopy NSString *)dragDeltaFilePath;
+
 @end

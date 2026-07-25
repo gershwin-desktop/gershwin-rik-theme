@@ -60,7 +60,8 @@ Eau_OBJC_FILES = \
 		NSMenu+Eau.m\
 		NSBox+Eau.m\
 		NSPopUpButton+Eau.m\
-		GSDisplayServer+Eau.m
+		GSDisplayServer+Eau.m\
+		Eau+DragTool.m
 
 # StepTalk scripting support (auto-detected on install)
 STEPTALK_LIB := $(firstword $(wildcard \
