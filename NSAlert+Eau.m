@@ -624,11 +624,11 @@ static void eauAlertSetStopping(id panel, BOOL val)
     
     @try {
         // Bail out if no text was set (initialized but unused panel)
-        NSString *title = titleField ? [titleField stringValue] : @"";
-        NSString *msg = messageField ? [messageField stringValue] : @"";
+        NSString *title = titleField ? [[titleField stringValue] stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]] : @"";
+        NSString *msg = messageField ? [[messageField stringValue] stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]] : @"";
         if (([title length] == 0) && ([msg length] == 0))
           {
-            NSLog(@"Eau: EauAlertPanel runModal suppressed — no text set (probably a bug in the application)");
+            NSLog(@"Eau: EauAlertPanel runModal suppressed — title and message are empty/whitespace (probably a bug in the application)");
             return NSAlertErrorReturn;
           }
 
@@ -1465,12 +1465,12 @@ static void setKeyEquivalent(NSButton *button)
     }
     
     // Never show an alert that has no text (probably a bug in the app)
-    NSString *msgText = [self messageText];
-    NSString *infoText = [self informativeText];
+    NSString *msgText = [[self messageText] stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *infoText = [[self informativeText] stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if ((msgText == nil || [msgText length] == 0) &&
         (infoText == nil || [infoText length] == 0))
       {
-        NSLog(@"Eau: NSAlert suppressed — both messageText and informativeText are empty (probably a bug in the application)");
+        NSLog(@"Eau: NSAlert suppressed — both messageText and informativeText are empty/whitespace (probably a bug in the application)");
         return NSAlertErrorReturn;
       }
 
