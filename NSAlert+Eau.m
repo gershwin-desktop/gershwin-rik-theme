@@ -643,6 +643,9 @@ static void eauAlertSetStopping(id panel, BOOL val)
         //       [self frame].origin.x, [self frame].origin.y,
         //       [self frame].size.width, [self frame].size.height);
     
+    // Float above all other windows (alert takes priority)
+    [self setLevel: NSScreenSaverWindowLevel];
+
     // Raise the window to ensure it gets input focus
     [NSApp activateIgnoringOtherApps: YES];
     [self orderFrontRegardless];
