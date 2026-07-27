@@ -623,6 +623,15 @@ static void eauAlertSetStopping(id panel, BOOL val)
     }
     
     @try {
+        // Bail out if no text was set (initialized but unused panel)
+        NSString *title = titleField ? [titleField stringValue] : @"";
+        NSString *msg = messageField ? [messageField stringValue] : @"";
+        if (([title length] == 0) && ([msg length] == 0))
+          {
+            NSLog(@"Eau: EauAlertPanel runModal suppressed — no text set (probably a bug in the application)");
+            return NSAlertErrorReturn;
+          }
+
         if (isGreen)
         {
             // NSLog(@"Eau: EauAlertPanel calling sizePanelToFit");
@@ -1455,6 +1464,16 @@ static void setKeyEquivalent(NSButton *button)
         return result;
     }
     
+    // Never show an alert that has no text (probably a bug in the app)
+    NSString *msgText = [self messageText];
+    NSString *infoText = [self informativeText];
+    if ((msgText == nil || [msgText length] == 0) &&
+        (infoText == nil || [infoText length] == 0))
+      {
+        NSLog(@"Eau: NSAlert suppressed — both messageText and informativeText are empty (probably a bug in the application)");
+        return NSAlertErrorReturn;
+      }
+
     // Call _setupPanel - this invokes the Eau custom setup since methods were swizzled
     // After swizzling: _setupPanel -> eau_setupPanel code, eau_setupPanel -> original code
     [self performSelector: @selector(_setupPanel)];
