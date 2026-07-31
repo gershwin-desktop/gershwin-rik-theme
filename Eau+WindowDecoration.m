@@ -4,6 +4,8 @@
 
 @interface Eau(EauWindowDecoration)
 
+- (void)invalidateTitleTextAttributes;
+
 @end
 
 
@@ -284,6 +286,16 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
     nil];
 }
 
+/* Drop the cached title-text attributes so they are re-prepared with the
+ * current GSScaleFactor on the next titlebar render. */
+- (void)invalidateTitleTextAttributes
+{
+  NSUInteger i;
+  for (i = 0; i < 3; i++)
+    {
+      DESTROY(titleTextAttributes[i]);
+    }
+}
 
 
 @end

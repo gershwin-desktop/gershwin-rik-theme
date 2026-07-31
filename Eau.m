@@ -8,6 +8,11 @@
 #import "NSMenuItemCell+Eau.h"
 #import "Eau+Button.h"
 #import "EauMenuRelaunchManager.h"
+#import "AppearanceMetrics.h"
+
+/* Process-wide GSScaleFactor cache used by the AppearanceMetrics macros;
+ * reset by -invalidateScaleFactorCache for live scale-factor changes. */
+CGFloat GSWScaleFactorValue = 0;
 
 @interface NSApplication (EauStepTalk)
 + (void)setupStepTalkScripting;
@@ -178,6 +183,13 @@ static NSConnection *gUIBridgeThemeConnection = nil;
 static EauUIBridgeProxy *gUIBridgeProxy = nil;
 
 @implementation Eau
+
+/* Reset the cached GSScaleFactor so the next render picks up a live change. */
+- (void)invalidateScaleFactorCache
+{
+  GSWScaleFactorInvalidate();
+  [self invalidateTitleTextAttributes];
+}
 
 + (void)load
 {

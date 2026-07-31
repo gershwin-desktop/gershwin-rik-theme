@@ -44,6 +44,8 @@
     BOOL menuServerConnected;
 }
 + (NSColor *) controlStrokeColor;
+- (void) invalidateScaleFactorCache;
+- (void) invalidateTitleTextAttributes;
 - (void) drawPathButton: (NSBezierPath*) path
                      in: (NSCell*)cell
 			            state: (GSThemeControlState) state;

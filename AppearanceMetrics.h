@@ -97,15 +97,20 @@ static const float METRICS_RESIZE_EDGE_THICKNESS = 4.0;
 // GSScaleFactor: backing scale factor for HiDPI displays.
 // Reads from NSUserDefaults (set via -GSScaleFactor N on command line),
 // falls back to [[NSScreen mainScreen] backingScaleFactor], caches result.
+// The cache is a single process-wide value so GSWScaleFactorInvalidate()
+// resets it everywhere at once (e.g. for live scale-factor changes).
+extern CGFloat GSWScaleFactorValue;
 static inline CGFloat GSWScaleFactor(void) {
-    static CGFloat _factor = 0;
-    if (_factor == 0) {
-        _factor = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
-        if (_factor == 0)
-            _factor = [[NSScreen mainScreen] backingScaleFactor];
-        if (_factor == 0) _factor = 1.0;
+    if (GSWScaleFactorValue == 0) {
+        GSWScaleFactorValue = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+        if (GSWScaleFactorValue == 0)
+            GSWScaleFactorValue = [[NSScreen mainScreen] backingScaleFactor];
+        if (GSWScaleFactorValue == 0) GSWScaleFactorValue = 1.0;
     }
-    return _factor;
+    return GSWScaleFactorValue;
+}
+static inline void GSWScaleFactorInvalidate(void) {
+    GSWScaleFactorValue = 0;
 }
 
 // Pixel-scaled window decoration metrics (multiplied by GSScaleFactor).
