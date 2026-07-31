@@ -94,6 +94,32 @@ static const float METRICS_RESIZE_EDGE_THICKNESS = 4.0;
 // Grow box zone size (matches actual scroller width for visual consistency)
 #define METRICS_GROW_BOX_SIZE 16.0
 
+// GSScaleFactor: backing scale factor for HiDPI displays.
+// Reads from NSUserDefaults (set via -GSScaleFactor N on command line),
+// falls back to [[NSScreen mainScreen] backingScaleFactor], caches result.
+static inline CGFloat GSWScaleFactor(void) {
+    static CGFloat _factor = 0;
+    if (_factor < 1.0) {
+        _factor = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+        if (_factor < 1.0)
+            _factor = [[NSScreen mainScreen] backingScaleFactor];
+        if (_factor < 1.0) _factor = 1.0;
+    }
+    return _factor;
+}
+
+// Pixel-scaled window decoration metrics (multiplied by GSScaleFactor).
+// Used by theme drawing code — logical metrics remain in the base constants.
+#define METRICS_TITLEBAR_HEIGHT_PX (METRICS_TITLEBAR_HEIGHT * GSWScaleFactor())
+#define METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX (METRICS_TITLEBAR_ORB_BUTTON_SIZE * GSWScaleFactor())
+#define METRICS_TITLEBAR_ORB_PADDING_LEFT_PX (METRICS_TITLEBAR_ORB_PADDING_LEFT * GSWScaleFactor())
+#define METRICS_TITLEBAR_ORB_BUTTON_SPACING_PX (METRICS_TITLEBAR_ORB_BUTTON_SPACING * GSWScaleFactor())
+#define METRICS_TITLEBAR_ORB_REGION_WIDTH_PX (METRICS_TITLEBAR_ORB_REGION_WIDTH * GSWScaleFactor())
+#define METRICS_TITLEBAR_ICON_INSET_PX (METRICS_TITLEBAR_ICON_INSET * GSWScaleFactor())
+#define METRICS_TITLEBAR_ICON_STROKE_PX (METRICS_TITLEBAR_ICON_STROKE * GSWScaleFactor())
+#define METRICS_TITLEBAR_BUTTON_INNER_RADIUS_PX (METRICS_TITLEBAR_BUTTON_INNER_RADIUS * GSWScaleFactor())
+#define METRICS_TITLEBAR_CORNER_RADIUS_PX (METRICS_TITLEBAR_CORNER_RADIUS * GSWScaleFactor())
+
 // Window corner radii for rounded corners
 static const float METRICS_TITLEBAR_CORNER_RADIUS = 7.0;  // Optically matches Menu app corner radius
 static const float METRICS_WINDOW_BOTTOM_CORNER_RADIUS = 0.0;

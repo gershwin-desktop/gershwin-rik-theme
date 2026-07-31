@@ -89,7 +89,7 @@
  */
 - (CGFloat)titlebarCornerRadius
 {
-  return METRICS_TITLEBAR_CORNER_RADIUS;
+  return METRICS_TITLEBAR_CORNER_RADIUS_PX;
 }
 
 /**
