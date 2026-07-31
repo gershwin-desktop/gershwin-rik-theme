@@ -99,11 +99,11 @@ static const float METRICS_RESIZE_EDGE_THICKNESS = 4.0;
 // falls back to [[NSScreen mainScreen] backingScaleFactor], caches result.
 static inline CGFloat GSWScaleFactor(void) {
     static CGFloat _factor = 0;
-    if (_factor < 1.0) {
+    if (_factor == 0) {
         _factor = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
-        if (_factor < 1.0)
+        if (_factor == 0)
             _factor = [[NSScreen mainScreen] backingScaleFactor];
-        if (_factor < 1.0) _factor = 1.0;
+        if (_factor == 0) _factor = 1.0;
     }
     return _factor;
 }
