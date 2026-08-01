@@ -199,7 +199,7 @@ static void EAULayoutGWDialog(GWDialog *dialog)
   // Log dialog content for diagnostics.
   NSDebugLog(@"EauDialog: GWDialog layout title='%@' edit='%@' switch='%@'", 
          [titleField stringValue],
-         [editField stringValue],
+         [(id)editField string],
          (switchButt != nil) ? [switchButt title] : @"");
 }
 /* GWDialog (Eau) Category
