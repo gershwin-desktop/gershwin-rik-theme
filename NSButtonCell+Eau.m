@@ -635,11 +635,33 @@ static NSMutableSet *returnImageCells = nil;
   }
 }
 
-// Enforce at least METRICS_BUTTON_MIN_WIDTH for bezeled buttons so pill-shaped
-// buttons have ~24px of horizontal padding around their text.
+// Ensure the cell is never narrower than its title text plus bezel padding,
+// so translated strings (which can be much longer than the English source)
+// always fit horizontally.  Also enforce at least METRICS_BUTTON_MIN_WIDTH
+// for bezeled buttons so pill-shaped buttons have room around their text.
 - (NSSize) EAU_cellSize
 {
   NSSize size = [self EAU_cellSize]; // call original (swizzled)
+
+  // Width needed for the title as actually rendered (using the cell's font)
+  // plus horizontal bezel margins.  GNUstep's cellSize already adds border
+  // + 6px, but recompute from the attributed title so the theme guarantees
+  // translated text never clips regardless of the base implementation.
+  if ([self respondsToSelector: @selector(attributedTitle)])
+    {
+      NSAttributedString *title = [self attributedTitle];
+      if (title && [title length])
+        {
+          NSSize titleSize = [title size];
+          GSThemeMargins m = [[GSTheme theme] buttonMarginsForCell: self
+                                                             style: [self bezelStyle]
+                                                             state: GSThemeNormalState];
+          CGFloat minWidth = titleSize.width + m.left + m.right + 6 + 6;
+          if (size.width < minWidth)
+            size.width = minWidth;
+        }
+    }
+
   if (size.width < METRICS_BUTTON_MIN_WIDTH && [self isBezeled])
     {
       size.width = METRICS_BUTTON_MIN_WIDTH;
