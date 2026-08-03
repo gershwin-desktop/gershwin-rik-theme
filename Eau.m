@@ -382,6 +382,13 @@ static Eau *gSharedEauInstance = nil;
 
   menuServerConnection = connection;
 
+  // The synchronous DO calls we make on this connection
+  // (updateMenuForWindow:menuData:clientName:) run on the main thread.  Without
+  // a request timeout a wedged or busy Menu.app would block our main thread
+  // forever and freeze the whole UI (Menu.app sets its own 0.3s timeout on the
+  // reverse calls).  Bound the wait so a dead peer can never hang us.
+  [menuServerConnection setRequestTimeout:1.0];
+
   id proxy = [menuServerConnection rootProxy];
   if (proxy != nil)
     {
