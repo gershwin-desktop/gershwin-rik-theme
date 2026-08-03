@@ -238,3 +238,60 @@ titleRect.size.height += 2;
 }
 
 @end
+
+// Make bezeled: NO the default for NSTextField (labels are the common case).
+// Apps wanting an input field call setBezeled: YES explicitly.
+// Make bezeled: NO the default for NSTextField (labels are the common case).
+// Apps wanting an input field call setBezeled: YES explicitly.
+@interface NSTextField (EauBezelDefault)
+- (id)initEauWithFrame:(NSRect)frameRect;
+- (id)initEauWithCoder:(NSCoder *)aDecoder;
+@end
+
+@implementation NSTextField (EauBezelDefault)
+
+- (id)initEauWithFrame:(NSRect)frameRect
+{
+  self = [self initEauWithFrame:frameRect];
+  if (self != nil)
+    {
+      [self setBezeled: NO];
+    }
+  return self;
+}
+
+- (id)initEauWithCoder:(NSCoder *)aDecoder
+{
+  self = [self initEauWithCoder:aDecoder];
+  if (self != nil)
+    {
+      [self setBezeled: NO];
+    }
+  return self;
+}
+
+@end
+
+__attribute__((constructor))
+static void initNSTextFieldBezelDefault(void)
+{
+  Class cls = [NSTextField class];
+  if (!cls)
+    {
+      return;
+    }
+
+  Method origInit = class_getInstanceMethod(cls, @selector(initWithFrame:));
+  Method swzInit = class_getInstanceMethod(cls, @selector(initEauWithFrame:));
+  if (origInit && swzInit)
+    {
+      method_exchangeImplementations(origInit, swzInit);
+    }
+
+  Method origCoder = class_getInstanceMethod(cls, @selector(initWithCoder:));
+  Method swzCoder = class_getInstanceMethod(cls, @selector(initEauWithCoder:));
+  if (origCoder && swzCoder)
+    {
+      method_exchangeImplementations(origCoder, swzCoder);
+    }
+}
