@@ -104,6 +104,7 @@ static void eauAlertSetStopping(id panel, BOOL val)
     [icoButton setAutoresizingMask: NSViewMaxXMargin | NSViewMinYMargin];
     [icoButton setBordered: NO];
     [icoButton setEnabled: NO];
+    [icoButton setTitle: @""];   // Never show the default "Button" text
     [[icoButton cell] setImageDimsWhenDisabled: NO];
     [[icoButton cell] setImageScaling: NSImageScaleProportionallyUpOrDown];
     [icoButton setImagePosition: NSImageOnly];
@@ -1049,6 +1050,8 @@ static const void *kEAUUserInfoKey = &kEAUUserInfoKey;
         [self setTitle: titleBar];
     
     // NSLog(@"Eau: Setting icon");
+    [icoButton setTitle: @""];   // Guard: never show the default "Button" text
+    [icoButton setImagePosition: NSImageOnly];
     if (icon != nil)
         [icoButton setImage: icon];
     
