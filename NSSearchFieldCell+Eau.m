@@ -168,25 +168,23 @@
 
 /* This method put the "x" cell inside the Text cell */
 
+/* Icon occupies [4, 20] (16px wide at x=4 per searchButtonRectForBounds:);
+ * 4px gap between the icon and its label text. */
+#define TEXT_LEFT_OFFSET	(4 + ICON_WIDTH + 4)
+
 - (NSRect) EAUsearchTextRectForBounds: (NSRect)rect
 {
-	NSRect search, text, part;
+	NSRect search, part;
 
-	if (_search_button_cell)
-	{
-		part = rect;
-		/*set the right point and size*/
-		part.origin.x +=0;
-		part.size.width -= 1;
-	}
-	else
-	{
-		NSDivideRect(rect, &search, &part, ICON_WIDTH, NSMinXEdge);
-	}
+	/* Always leave room for the search button/magnifier on the left, whether
+	 * the button cell exists or not, so the text never starts under the icon.
+	 * searchButtonRectForBounds: places the icon in [0, ICON_WIDTH] (plus a
+	 * small offset); start the text after it with the HIG gap. */
+	NSDivideRect(rect, &search, &part, ICON_WIDTH, NSMinXEdge);
+	part.origin.x += TEXT_LEFT_OFFSET - ICON_WIDTH;
+	part.size.width -= (TEXT_LEFT_OFFSET - ICON_WIDTH);
 
-	text = part;
-
-	return text;
+	return part;
 }
 
 - (void) _EAUdrawBorderAndBackgroundWithFrame: (NSRect)cellFrame
@@ -255,8 +253,11 @@
 {
   if ([controlView isKindOfClass: [NSControl class]])
     {
-      /* Adjust the text editor's frame to match cell's frame (w/o border) */
-      NSRect titleRect = [self titleRectForBounds: cellFrame];
+      /* Position the editor in the search field's text area (after the
+       * magnifier icon), matching how -editWithFrame:inView:... places the
+       * editor.  Using -titleRectForBounds: here would silently return the
+       * full cell frame while editing and put the text back under the icon. */
+      NSRect titleRect = [self searchTextRectForBounds: cellFrame];
       NSText *textObject = [(NSControl*)controlView currentEditor];
       NSView *clipView = [textObject superview];
 
@@ -286,8 +287,8 @@
       NSRect frame = [self drawingRectForBounds: theRect];
       if (_cell.is_bordered || _cell.is_bezeled)
         {
-          frame.origin.x += 20;
-          frame.size.width -= 34;
+          frame.origin.x += TEXT_LEFT_OFFSET;
+          frame.size.width -= (TEXT_LEFT_OFFSET + 14);
 
           /* Vertically centre the text within the search field */
           CGFloat fontHeight = [[self font] boundingRectForFont].size.height;
