@@ -843,8 +843,12 @@ static NSMutableSet *returnImageCells = nil;
 // Timer callback for default button pulse — called from NSButton+Eau.m swizzle
 - (void) EauPulseTick: (NSTimer *)timer
 {
+  // Mark the button dirty and let the run loop redraw it asynchronously.
+  // Forcing a synchronous [window display] + [window flushWindow] every tick
+  // (30/s) redraws the whole alert panel and flushes X every frame, which
+  // starves the event loop and floods the X connection while a modal alert is
+  // up.  setNeedsDisplay: defers to the normal draw cycle, which GNUstep
+  // coalesces, so the pulse stays smooth without the CPU/X cost.
   [[self controlView] setNeedsDisplay: YES];
-  [[[self controlView] window] display];
-  [[[self controlView] window] flushWindow];
 }
 @end
