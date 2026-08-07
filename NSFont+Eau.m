@@ -25,6 +25,20 @@
 // font references a family that is not actually available on this system, we
 // log a warning and substitute any available sans-serif family instead.
 
+// Memoized list of available font families.  The fontconfig family set does
+// not change during a run, and re-enumerating it on every call is expensive:
+// building a menu creates one NSMenuItemCell per item and each one resolves
+// its font, so without memoizing, a menu rebuild spends its time in
+// fontconfig (FcFontSort/FcFontSetSort) instead of drawing - the source of
+// Menu.app's repeated CPU bursts while its menu bar is rebuilt.
+static NSArray *EauFontFamilies(void)
+{
+  static NSArray *families = nil;
+  if (families == nil)
+    families = [[NSFontManager sharedFontManager] availableFontFamilies];
+  return families;
+}
+
 static NSString *EauAvailableFamily(void)
 {
   static NSArray *order = nil;
@@ -32,7 +46,7 @@ static NSString *EauAvailableFamily(void)
     order = @[@"Inter", @"Nimbus Sans", @"DejaVu Sans", @"Liberation Sans",
               @"Arial", @"Helvetica", @"Clean", @"Luxi Sans", @"URW Gothic"];
 
-  NSArray *families = [[NSFontManager sharedFontManager] availableFontFamilies];
+  NSArray *families = EauFontFamilies();
   for (NSString *pattern in order)
     for (NSString *fam in families)
       if ([fam rangeOfString:pattern options:NSCaseInsensitiveSearch]
@@ -60,40 +74,63 @@ static NSFont *EauFallbackFont(void)
 
 + (NSFont *)eau_fontOrDefault:(NSFont *)font size:(CGFloat)size
 {
+  // Cache the resolved font per (family, size): a menu rebuild creates one
+  // NSMenuItemCell per item and each one re-runs fontconfig matching
+  // (FcFontSort) here, which is what makes Menu.app's CPU spike while menus
+  // are rebuilt.  The resolution is deterministic, so caching is safe.
+  static NSMutableDictionary *cache = nil;
+  if (cache == nil)
+    cache = [NSMutableDictionary dictionary];
+
+  NSString *fontFamily = [font familyName];
+  NSString *cacheKey = [NSString stringWithFormat: @"%@\v%.1f",
+    fontFamily ?: @"", size];
+  NSFont *hit = [cache objectForKey: cacheKey];
+  if (hit != nil)
+    return hit;
+
+  NSFont *resolved = nil;
   // If the resolved font references a family that really exists on the
   // system, keep it (preserves bold/italic and the intended look).
-  NSString *fontFamily = [font familyName];
   if (fontFamily != nil)
     {
-      NSArray *families =
-        [[NSFontManager sharedFontManager] availableFontFamilies];
+      NSArray *families = EauFontFamilies();
       for (NSString *fam in families)
         if ([fam isEqualToString:fontFamily])
           {
             NSFontDescriptor *d = [font fontDescriptor];
-            return [NSFont fontWithDescriptor:d size:size];
+            resolved = [NSFont fontWithDescriptor: d size: size];
+            break;
           }
       // Fall through: family is not reported as available.
     }
 
-  // Log once, then fall back to any available sans-serif family so that
-  // drawing is guaranteed to work as long as a single font is installed.
-  static BOOL warned = NO;
-  if (!warned)
+  if (resolved == nil)
     {
-      warned = YES;
-      NSLog(@"Eau: requested UI font family '%@' is not available on this "
-            @"system; using '%@' instead.",
-            fontFamily ?: @"(system default)", EauAvailableFamily() ?: @"(none)");
+      // Log once, then fall back to any available sans-serif family so that
+      // drawing is guaranteed to work as long as a single font is installed.
+      static BOOL warned = NO;
+      if (!warned)
+        {
+          warned = YES;
+          NSLog(@"Eau: requested UI font family '%@' is not available on this "
+                @"system; using '%@' instead.",
+                fontFamily ?: @"(system default)",
+                EauAvailableFamily() ?: @"(none)");
+        }
+
+      NSString *family = EauAvailableFamily();
+      NSFont *usable = (family != nil) ? EauFallbackFont() : nil;
+      if (usable == nil && font != nil)
+        usable = font;
+
+      NSFontDescriptor *desc = [usable fontDescriptor];
+      resolved = [NSFont fontWithDescriptor: desc size: size];
     }
 
-  NSString *family = EauAvailableFamily();
-  NSFont *usable = (family != nil) ? EauFallbackFont() : nil;
-  if (usable == nil && font != nil)
-    usable = font;
-
-  NSFontDescriptor *desc = [usable fontDescriptor];
-  return [NSFont fontWithDescriptor:desc size:size];
+  if (resolved != nil)
+    [cache setObject: resolved forKey: cacheKey];
+  return resolved;
 }
 
 + (NSFont *)eau_menuBarFontOfSize:(CGFloat)fontSize
