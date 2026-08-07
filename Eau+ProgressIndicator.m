@@ -1,8 +1,48 @@
 #include "Eau.h"
 
+@protocol EauDockService
+- (void)setProgressValue:(double)value;
+- (void)setProgressVisible:(BOOL)visible;
+@end
+
 @interface Eau(EauProgressIndicator)
 
 @end
+
+@interface Eau(EauDockProgress)
+- (void)reportDockProgress:(double)value;
+- (void)resetDockHideTimer;
+- (void)hideDockProgress:(NSTimer *)timer;
+@end
+
+// Mirror an app's progress bar into its Dock icon via the DockIcon DO service
+// (Workspace's Dock, see DockService.m).  Eau runs inside every app, so the
+// service resolves the caller and updates that app's own Dock icon.  Value is
+// throttled to changes; a timer hides the Dock bar a while after the last
+// draw, so a finished or removed indicator does not stay stuck on the icon.
+#define EAU_DOCK_HIDE_DELAY 2.0
+static id<EauDockService> dockProgressProxy = nil;
+static double lastDockValue = -2.0;   /* sentinel: nothing reported yet */
+static NSTimer *dockHideTimer = nil;
+static NSTimeInterval lastDockConnectAttempt = 0.0;
+
+static id<EauDockService> EauDockProgressProxy(void)
+{
+  NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+  if (dockProgressProxy == nil && (now - lastDockConnectAttempt) > 5.0)
+    {
+      /* Retry every few seconds so an app that starts before the Dock is
+       * still able to pick the service up once the Dock is running. */
+      lastDockConnectAttempt = now;
+      NSConnection *conn =
+        [NSConnection connectionWithRegisteredName:@"DockIcon" host:nil];
+      if (conn)
+        {
+          dockProgressProxy = (id<EauDockService>)[conn rootProxy];
+        }
+    }
+  return dockProgressProxy;
+}
 
 @implementation Eau(EauProgressIndicator)
 
@@ -62,6 +102,17 @@ static NSImage *spinningImages[MaxCount];
   if (fillColour == nil)
     {
       [self initProgressIndicatorDrawing];
+    }
+  // Mirror the indicator into this app's Dock icon: determinate bars report
+  // their fraction, indeterminate/spinning bars report -1 (no fill).
+  if ([progress style] == NSProgressIndicatorSpinningStyle
+      || [progress isIndeterminate])
+    {
+      [self reportDockProgress: -1.0];
+    }
+  else
+    {
+      [self reportDockProgress: val];
     }
   // Draw the Bezel
   if ([progress isBezeled])
@@ -190,6 +241,64 @@ static NSImage *spinningImages[MaxCount];
   [progressbarGradient drawInBezierPath: fullrectangePath angle: angle];
 
 
+}
+
+@end
+
+@implementation Eau(EauDockProgress)
+
+- (void)reportDockProgress:(double)value
+{
+  id<EauDockService> proxy = EauDockProgressProxy();
+  if (proxy == nil)
+    {
+      return;
+    }
+  if (value == lastDockValue)
+    {
+      /* Value unchanged but still being drawn: keep the bar visible by
+       * pushing the hide time out.  A determinate bar that stalls mid-way
+       * must not flicker, and a spinning indicator redraws constantly. */
+      [self resetDockHideTimer];
+      return;
+    }
+  lastDockValue = value;
+  [proxy setProgressValue: value];
+  [proxy setProgressVisible: YES];
+  [self resetDockHideTimer];
+}
+
+- (void)resetDockHideTimer
+{
+  if (dockHideTimer)
+    {
+      [dockHideTimer invalidate];
+      dockHideTimer = nil;
+    }
+  /* scheduledTimerWithTimeInterval only serves the default mode; a modal
+   * alert or menu tracking (Build's success alert, a Run dialog) would stall
+   * the timer, leaving the Dock bar stuck.  Serve those modes too. */
+  NSTimer *t = [NSTimer timerWithTimeInterval: EAU_DOCK_HIDE_DELAY
+                                       target: self
+                                     selector: @selector(hideDockProgress:)
+                                     userInfo: nil
+                                      repeats: NO];
+  NSRunLoop *rl = [NSRunLoop currentRunLoop];
+  [rl addTimer: t forMode: NSDefaultRunLoopMode];
+  [rl addTimer: t forMode: NSModalPanelRunLoopMode];
+  [rl addTimer: t forMode: NSEventTrackingRunLoopMode];
+  dockHideTimer = t;
+}
+
+- (void)hideDockProgress:(NSTimer *)timer
+{
+  dockHideTimer = nil;
+  lastDockValue = -2.0;
+  id<EauDockService> proxy = EauDockProgressProxy();
+  if (proxy)
+    {
+      [proxy setProgressVisible: NO];
+    }
 }
 
 @end
