@@ -611,7 +611,14 @@ static void eauAlertSetStopping(id panel, BOOL val)
 
 - (NSInteger) runModal
 {
-    NSLog(@"Eau: EauAlertPanel runModal — title=\"%@\"", [self title]);
+    /* Print the full dialog text (title and message) so CI logs show exactly
+     * why a modal alert is up; the test suite treats an unhandled modal as a
+     * failure, so the reason must be greppable from the log. */
+    {
+        NSString *ttl = titleField ? [titleField stringValue] : @"";
+        NSString *msg = messageField ? [messageField stringValue] : @"";
+        NSLog(@"Eau: EauAlertPanel runModal — title=\"%@\" message=\"%@\"", ttl, msg);
+    }
     
     // Beep when alert is displayed (diagnostics)
     NSApplication *app = [NSApplication sharedApplication];
@@ -995,6 +1002,12 @@ static void eauAlertSetStopping(id panel, BOOL val)
    before being moved to the correct center position by -center. */
 - (void) orderFrontRegardless
 {
+    /* Non-modal alert: print its text so CI logs show why it appeared. */
+    {
+        NSString *ttl = titleField ? [titleField stringValue] : @"";
+        NSString *msg = messageField ? [messageField stringValue] : @"";
+        NSLog(@"Eau: EauAlertPanel shown non-modally — title=\"%@\" message=\"%@\"", ttl, msg);
+    }
     [self center];
     [super orderFrontRegardless];
 }
