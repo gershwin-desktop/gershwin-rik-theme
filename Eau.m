@@ -324,7 +324,17 @@ static Eau *gSharedEauInstance = nil;
 {
   if (menuClientConnection != nil)
     {
-      return YES;
+      /* The connection object is alive, but a name-server restart (gdnc) can
+         wipe the whole names registry while leaving the connection "valid" -
+         then Menu.app can no longer resolve our MenuClient.<pid> and shows no
+         app menu.  Verify the name still resolves; if it does not, drop the
+         stale connection so we register fresh below. */
+      if ([self _menuClientNameRegistered])
+        {
+          return YES;
+        }
+      NSDebugLog(@"Eau: Menu client registration lost - re-registering");
+      [self _teardownMenuClientConnection];
     }
 
   menuClientConnection = [[NSConnection alloc] init];
@@ -356,6 +366,65 @@ static Eau *gSharedEauInstance = nil;
                                                name:NSConnectionDidDieNotification
                                              object:menuClientConnection];
   return YES;
+}
+
+/* Does our MenuClient name still resolve on the DO name server? */
+- (BOOL)_menuClientNameRegistered
+{
+  @try {
+    NSConnection *found = [NSConnection connectionWithRegisteredName: [self _menuClientName]
+                                                                host: nil];
+    if (found)
+      {
+        [found invalidate];
+        return YES;
+      }
+  } @catch (NSException *e) {
+    /* Name server may be restarting; treat as not registered. */
+  }
+  return NO;
+}
+
+/* Drop the client connection state so the next _ensureMenuClientRegistered
+   creates and registers a fresh connection. */
+- (void)_teardownMenuClientConnection
+{
+  [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                 name:NSConnectionDidDieNotification
+                                               object:menuClientConnection];
+  if (menuClientReceivePort != nil)
+    {
+      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
+                                     forMode:NSDefaultRunLoopMode];
+      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
+                                     forMode:NSModalPanelRunLoopMode];
+      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
+                                     forMode:NSEventTrackingRunLoopMode];
+      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
+                                     forMode:NSRunLoopCommonModes];
+      menuClientReceivePort = nil;
+    }
+  [menuClientConnection invalidate];
+  menuClientConnection = nil;
+}
+
+/* Periodic check that our MenuClient.<pid> registration still exists.  A
+   name-server restart (gdnc) wipes the names registry but the NSConnection
+   stays "valid", so _ensureMenuClientRegistered would normally return early.
+   The self-resolve check catches the loss and re-registers. */
+- (void)scheduleMenuClientVerification
+{
+  [self performSelector: @selector(verifyMenuClientRegistration)
+             withObject: nil
+             afterDelay: 30.0
+                inModes: [NSArray arrayWithObjects: NSDefaultRunLoopMode,
+                  NSModalPanelRunLoopMode, nil]];
+}
+
+- (void)verifyMenuClientRegistration
+{
+  [self _ensureMenuClientRegistered];
+  [self scheduleMenuClientVerification];
 }
 
 - (BOOL)_ensureMenuServerConnection
@@ -575,6 +644,13 @@ static Eau *gSharedEauInstance = nil;
       // Register as a GNUstep menu client so Menu.app can call back for actions
       [self _ensureMenuClientRegistered];
 
+      // Keep the MenuClient registration alive across name-server restarts
+      // (a gdnc restart wipes the names registry while the connection stays
+      // "valid", so without this the app's menu silently disappears).
+      [self performSelector: @selector(scheduleMenuClientVerification)
+                 withObject: nil
+                 afterDelay: 5.0];
+
       // Try to connect to Menu.app's GNUstep menu server (may not be running yet)
       [self _ensureMenuServerConnection];
       
@@ -679,20 +755,10 @@ static Eau *gSharedEauInstance = nil;
 - (void)_menuClientConnectionDidDie:(NSNotification *)notification
 {
   NSDebugLog(@"Eau: Menu client connection died");
-  NSDebugLog(@"Eau: Menu client connection died");
-  if (menuClientReceivePort != nil)
-    {
-      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
-                                     forMode:NSDefaultRunLoopMode];
-      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
-                                     forMode:NSModalPanelRunLoopMode];
-      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
-                                     forMode:NSEventTrackingRunLoopMode];
-      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
-                                     forMode:NSRunLoopCommonModes];
-      menuClientReceivePort = nil;
-    }
-  menuClientConnection = nil;
+  [self _teardownMenuClientConnection];
+  /* Re-register so Menu.app keeps seeing this app's menu after a name-server
+     restart. */
+  [self _ensureMenuClientRegistered];
 }
 
 - (void)_menuServerConnectionDidDie:(NSNotification *)notification
