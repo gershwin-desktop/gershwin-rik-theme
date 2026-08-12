@@ -7,9 +7,12 @@
    This allows the Eau theme to:
    1. Receive notifications when the main menu changes
    2. Control menu visibility (hide in-app menu bar for global menu)
-   3. Detect and close orphaned dropdown menu windows that should have
-      been closed when the user switched to a different top-level menu
-      item but weren't due to a tracking-loop cleanup gap
+   3. Enforce the invariant that before a new menu panel is shown, every
+      panel left open by an earlier interaction is closed (the exception
+      is a submenu, whose parent chain stays put).  Upstream only tears
+      the first-level dropdown down for NSWindows95InterfaceStyle, so
+      under the Macintosh style orphaned panels used to stay mapped and
+      wedge the menu bar.
    4. Implement overflowing menu scrolling (Leopard-style) when a menu
       has more items than fit on screen
 */
@@ -245,23 +248,30 @@ static void _eau_destroyX11MenuWindows(void)
       if (attr.map_state != IsViewable)
         continue;
 
-      /* Check WM_CLASS for "Menu" "GNUstep" */
+      /* Check WM_CLASS for "Menu".  GNUstep windows carry the class hint
+         "Menu", "Menu" (res_name=Menu, res_class=Menu) for ALL of a menu
+         app's windows - the bar, dropdowns, panels and caches alike.  The
+         old check for res_class "GNUstep" matched nothing, so orphaned
+         dropdowns were never cleaned up and wedged the menu bar. */
       XClassHint classHint;
       if (!XGetClassHint(_eau_x11_display, w, &classHint))
         continue;
       BOOL isMenu = (classHint.res_name
                      && strcmp(classHint.res_name, "Menu") == 0
                      && classHint.res_class
-                     && strcmp(classHint.res_class, "GNUstep") == 0);
+                     && strcmp(classHint.res_class, "Menu") == 0);
       XFree(classHint.res_name);
       XFree(classHint.res_class);
       if (!isMenu)
         continue;
 
-      /* Skip the menu bar itself — it's a "Menu" "GNUstep" window
-         too but sits at y=0 with the menu bar height (~22px).
-         Only destroy windows that are clearly dropdowns (>25px). */
-      if (attr.y == 0 && attr.height <= 25)
+      /* Only destroy windows that are clearly dropdown menus.  The menu bar
+         itself is a "Menu" "Menu" window too (at y=0, 22px tall), as are
+         small utility windows such as the 22px search panel and the 14/18px
+         GSCache windows.  A real dropdown is taller than a menu item
+         (menuItemHeight is 22px, so a single-item menu window is >22px);
+         skip anything at or below the bar height. */
+      if (attr.height <= 22)
         continue;
 
       /* Found a visible GNUstep Menu window.  Destroy the parent
@@ -304,6 +314,158 @@ static void _eau_destroyX11MenuWindows(void)
 
   if (children) XFree(children);
   XSync(_eau_x11_display, False);
+}
+
+/* ---- Close-ahead enforcement: never show a new panel on top of old ones ----
+ *
+ * Upstream only tears down the first-level dropdown for
+ * NSWindows95InterfaceStyle (see NSMenuView -trackWithEvent: teardown and
+ * the mainWindowMenuView guard).  Under the Macintosh style an orphaned
+ * panel stays mapped, swallows clicks and wedges the menu bar.
+ *
+ * Invariant enforced here: before a new menu panel is displayed, every
+ * visible panel that is NOT part of the new panel's own ancestor chain
+ * (menu + supermenus) is closed first.  Submenu nesting is exempt by
+ * construction: a submenu's parent menus are its supermenus, so they stay
+ * in the keep-set.
+ *
+ * The AppKit-level pass only closes panels GNUstep still reports visible.
+ * During a fast sweep over the menu bar the previous dropdown is already
+ * marked hidden by the tracking loop while its X11 window is still mapped
+ * (the original wedge), so a second pass withdraws stale panels directly
+ * at the X11 level regardless of the AppKit visibility flag.
+ */
+static void _eau_closeStaleMenuPanelsForMenu(NSMenu *openingMenu)
+{
+  if (openingMenu == nil) return;
+
+  /* Membership is by POINTER IDENTITY only.  A panel's _menu can point at a
+     menu that was already torn down by the tracking loop (freed, dangling):
+     sending it -hash / -isEqual: via -[NSSet containsObject:] then crashes.
+     Address comparisons never message the candidate object. */
+  NSMutableSet *keepAddrs = [NSMutableSet set];
+  NSMenu *m = openingMenu;
+  while (m != nil)
+    {
+      [keepAddrs addObject: [NSValue valueWithPointer: (const void *)m]];
+      m = [m supermenu];
+    }
+
+  Class panelClass = objc_getClass("NSMenuPanel");
+  if (panelClass == nil) return;
+
+  for (NSWindow *w in [NSApp windows])
+    {
+      if (![w isKindOfClass: panelClass]) continue;
+      if (![w isVisible]) continue;
+      NSMenu *pm = [(id)w _menu];
+      if (pm == nil) continue;
+      if ([keepAddrs containsObject: [NSValue valueWithPointer: (const void *)pm]]) continue;
+      if ([pm isTornOff] || [pm isTransient]) continue;
+      NSDebugLog(@"Eau+Menu: closing stale menu panel %@ before opening %@",
+                 pm, openingMenu);
+      @try
+        {
+          [pm close];
+        }
+      @catch (NSException *e) {}
+    }
+
+  /* X11-level fallback: withdraw every still-mapped "Menu" dropdown window
+     that is not part of the opening menu's keep-set.  AppKit's visibility
+     flag is not consulted here because the stale panel is typically already
+     flagged hidden by the tracking loop while its X11 window remains mapped
+     (that is the wedge this enforcement exists to prevent).  Withdrawing,
+     rather than destroying, keeps the cached NSMenuPanel window usable for
+     later re-display. */
+  _eau_ensureState();
+  if (_eau_x11_display == NULL) return;
+
+  NSMutableSet *keepXids = [NSMutableSet set];
+  for (NSWindow *w in [NSApp windows])
+    {
+      if (![w isKindOfClass: panelClass]) continue;
+      NSMenu *pm = [(id)w _menu];
+      if (pm == nil) continue;
+      if (![keepAddrs containsObject: [NSValue valueWithPointer: (const void *)pm]]) continue;
+      unsigned long xid = (unsigned long)[w windowRef];
+      if (xid != 0)
+        [keepXids addObject: [NSNumber numberWithUnsignedLong: xid]];
+    }
+
+  Window root = DefaultRootWindow(_eau_x11_display);
+  Window unused_root, unused_parent;
+  Window *children = NULL;
+  unsigned int nchildren = 0;
+
+  if (!XQueryTree(_eau_x11_display, root, &unused_root, &unused_parent,
+                  &children, &nchildren))
+    return;
+
+  for (unsigned int i = 0; i < nchildren; i++)
+    {
+      Window w = children[i];
+      XWindowAttributes attr;
+      if (!XGetWindowAttributes(_eau_x11_display, w, &attr))
+        continue;
+      if (attr.map_state != IsViewable)
+        continue;
+
+      XClassHint classHint;
+      if (!XGetClassHint(_eau_x11_display, w, &classHint))
+        continue;
+      BOOL isMenu = (classHint.res_name
+                     && strcmp(classHint.res_name, "Menu") == 0
+                     && classHint.res_class
+                     && strcmp(classHint.res_class, "Menu") == 0);
+      XFree(classHint.res_name);
+      XFree(classHint.res_class);
+      if (!isMenu)
+        continue;
+
+      /* Keep the existing guard: skip anything at or below the menu bar
+         height so the bar itself and the small utility windows survive. */
+      if (attr.height <= 22)
+        continue;
+
+      if ([keepXids containsObject: [NSNumber numberWithUnsignedLong: (unsigned long)w]])
+        continue;
+
+      NSDebugLog(@"Eau+Menu: withdrawing stale dropdown X window 0x%lx "
+                 "before opening %@", (unsigned long)w, openingMenu);
+      XWithdrawWindow(_eau_x11_display, w,
+                      XScreenNumberOfScreen(attr.screen));
+
+      /* Withdraw the parent too: GNUstep may reparent the NSWindow's X11
+         window under an unmanaged container that stays visible on its own. */
+      Window parent = w;
+      Window *children2 = NULL;
+      unsigned int nc2 = 0;
+      if (XQueryTree(_eau_x11_display, w, &unused_root, &parent,
+                     &children2, &nc2))
+        {
+          if (children2) XFree(children2);
+        }
+      if (parent != root && parent != None)
+        XWithdrawWindow(_eau_x11_display, parent,
+                        XScreenNumberOfScreen(attr.screen));
+    }
+
+  if (children) XFree(children);
+  XSync(_eau_x11_display, False);
+}
+
+/* ---- NSMenuPanel orderFrontRegardless swizzle ---- */
+
+static void (*s_orig_menuPanelOrderFrontRegardless)(id, SEL) = NULL;
+
+static void s_eau_menuPanelOrderFrontRegardless(id self, SEL _cmd)
+{
+  NSMenu *menu = [(id)self _menu];
+  if (menu != nil)
+    _eau_closeStaleMenuPanelsForMenu(menu);
+  if (s_orig_menuPanelOrderFrontRegardless)
+    s_orig_menuPanelOrderFrontRegardless(self, _cmd);
 }
 
 /* ---- trackWithEvent: swizzle (increment/decrement, then cleanup) ---- */
@@ -538,6 +700,10 @@ static NSEvent* s_eau_nextEventMatchingMask(id self, SEL _cmd, NSUInteger mask, 
  */
 - (void)eau_displayTransient
 {
+  // Same close-ahead as eau_display/orderFrontRegardless: transient
+  // panels are shown via _bWindow orderFront:, which bypasses the
+  // NSMenuPanel orderFrontRegardless swizzle, so enforce here too.
+  _eau_closeStaleMenuPanelsForMenu(self);
   [self eau_displayTransient];
 }
 
@@ -679,6 +845,29 @@ static void initNSMenuSwizzling(void)
   // menu windows to the bottom screen border. This catches ALL menu
   // positioning regardless of which code path is used.
   _eau_swizzleMenuWindowFrameMethods();
+
+  // Swizzle NSMenuPanel orderFrontRegardless to enforce the invariant that
+  // no new menu panel is ever shown on top of panels left open by an earlier
+  // interaction (only the new panel's own submenu chain stays open).  Every
+  // dropdown/submenu/popup display ends in orderFrontRegardless on the
+  // NSMenuPanel (_aWindow), so this is the single choke point for regular
+  // (non-transient) panels.
+  {
+    Class menuPanelClass = objc_getClass("NSMenuPanel");
+    if (menuPanelClass)
+      {
+        Method m = class_getInstanceMethod(menuPanelClass,
+                                           @selector(orderFrontRegardless));
+        if (m)
+          {
+            s_orig_menuPanelOrderFrontRegardless
+              = (void (*)(id, SEL))method_getImplementation(m);
+            method_setImplementation(m,
+              (IMP)s_eau_menuPanelOrderFrontRegardless);
+            NSDebugLog(@"Eau: Swizzled NSMenuPanel orderFrontRegardless for stale-panel close-ahead");
+          }
+      }
+  }
 
   // Swizzle nextEventMatchingMask:untilDate:inMode:dequeue: on NSApplication
   // to add scroll wheel support during menu tracking.
