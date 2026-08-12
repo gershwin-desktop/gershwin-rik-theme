@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 
 TOOL_NAME = alerttest dialogtest
@@ -11,3 +12,4 @@ alerttest_TOOL_LIBS = -lgnustep-gui -lgnustep-base
 dialogtest_TOOL_LIBS = -lgnustep-gui -lgnustep-base
 
 include $(GNUSTEP_MAKEFILES)/tool.make
+
