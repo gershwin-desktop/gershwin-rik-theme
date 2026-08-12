@@ -151,7 +151,10 @@ static void eauAlertSetStopping(id panel, BOOL val)
     } @catch (NSException *e) {
         // NSLog(@"Eau: Exception loading button images: %@", e);
     }
-    [defButton setFont: titleFont];  // Mark as default with bold font
+    /* Only the headline is bold; buttons always use the regular font.  The
+     * default button is still marked as such by cell/button-behavior, not by
+     * its font weight. */
+    [defButton setFont: METRICS_FONT_SYSTEM_REGULAR_13];
     
     altButton = [self _makeButtonWithRect: NSZeroRect tag: NSAlertAlternateReturn];
     othButton = [self _makeButtonWithRect: NSZeroRect tag: NSAlertOtherReturn];
