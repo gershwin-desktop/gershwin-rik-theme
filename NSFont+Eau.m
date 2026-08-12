@@ -14,6 +14,7 @@
 + (NSFont *)eau_titleBarFontOfSize:(CGFloat)fontSize;
 + (NSFont *)eau_fontWithName:(NSString *)name size:(CGFloat)size;
 + (NSFont *)eau_fontOrDefault:(NSFont *)font size:(CGFloat)size;
++ (NSFont *)eau_fontOrDefault:(NSFont *)font size:(CGFloat)size weight:(NSInteger)weight;
 @end
 
 @implementation NSFont (EauSwizzling)
@@ -74,8 +75,21 @@ static NSFont *EauFallbackFont(void)
 
 + (NSFont *)eau_fontOrDefault:(NSFont *)font size:(CGFloat)size
 {
-  // Cache the resolved font per (family, size): a menu rebuild creates one
-  // NSMenuItemCell per item and each one re-runs fontconfig matching
+  return [self eau_fontOrDefault: font size: size weight: 0];
+}
+
+/* Like eau_fontOrDefault:size:, but when weight > 0 rebuilds the face from the
+ * resolved family at that weight instead of trusting the base font.  GNUstep
+ * resolves the "system font" to whatever face fontconfig picks, which inside
+ * the Menu process was the wrong weight (systemFontOfSize:11 came back
+ * Inter-Bold, boldSystemFontOfSize:13 came back Inter-Medium).  The system
+ * font contract is regular for systemFontOfSize: and bold for
+ * boldSystemFontOfSize:, so those two entry points enforce weight 6 / 9 here
+ * to restore it, while every other selector keeps its base face. */
++ (NSFont *)eau_fontOrDefault:(NSFont *)font size:(CGFloat)size weight:(NSInteger)weight
+{
+  // Cache the resolved font per (family, weight, size): a menu rebuild creates
+  // one NSMenuItemCell per item and each one re-runs fontconfig matching
   // (FcFontSort) here, which is what makes Menu.app's CPU spike while menus
   // are rebuilt.  The resolution is deterministic, so caching is safe.
   static NSMutableDictionary *cache = nil;
@@ -83,12 +97,13 @@ static NSFont *EauFallbackFont(void)
     cache = [NSMutableDictionary dictionary];
 
   NSString *fontFamily = [font familyName];
-  NSString *cacheKey = [NSString stringWithFormat: @"%@\v%.1f",
-    fontFamily ?: @"", size];
+  NSString *cacheKey = [NSString stringWithFormat: @"%@\v%ld\v%.1f",
+    fontFamily ?: @"", (long)weight, size];
   NSFont *hit = [cache objectForKey: cacheKey];
   if (hit != nil)
     return hit;
 
+  BOOL enforceWeight = (weight > 0);
   NSFont *resolved = nil;
   // If the resolved font references a family that really exists on the
   // system, keep it (preserves bold/italic and the intended look).
@@ -98,8 +113,22 @@ static NSFont *EauFallbackFont(void)
       for (NSString *fam in families)
         if ([fam isEqualToString:fontFamily])
           {
-            NSFontDescriptor *d = [font fontDescriptor];
-            resolved = [NSFont fontWithDescriptor: d size: size];
+            if (enforceWeight)
+              {
+                // Rebuild at the requested weight rather than round-tripping
+                // the base face (which may already be the wrong weight).
+                NSUInteger traits = (weight >= 7) ? NSBoldFontMask : 0;
+                resolved = [[NSFontManager sharedFontManager]
+                             fontWithFamily: fontFamily
+                                     traits: traits
+                                     weight: weight
+                                       size: size];
+              }
+            else
+              {
+                NSFontDescriptor *d = [font fontDescriptor];
+                resolved = [NSFont fontWithDescriptor: d size: size];
+              }
             break;
           }
       // Fall through: family is not reported as available.
@@ -124,8 +153,21 @@ static NSFont *EauFallbackFont(void)
       if (usable == nil && font != nil)
         usable = font;
 
-      NSFontDescriptor *desc = [usable fontDescriptor];
-      resolved = [NSFont fontWithDescriptor: desc size: size];
+      if (enforceWeight && usable != nil)
+        {
+          // Apply the requested weight to the fallback family too.
+          NSUInteger traits = (weight >= 7) ? NSBoldFontMask : 0;
+          resolved = [[NSFontManager sharedFontManager]
+                       fontWithFamily: [usable familyName]
+                               traits: traits
+                               weight: weight
+                                 size: size];
+        }
+      if (resolved == nil && usable != nil)
+        {
+          NSFontDescriptor *desc = [usable fontDescriptor];
+          resolved = [NSFont fontWithDescriptor: desc size: size];
+        }
     }
 
   if (resolved != nil)
@@ -148,13 +190,19 @@ static NSFont *EauFallbackFont(void)
 + (NSFont *)eau_systemFontOfSize:(CGFloat)fontSize
 {
   NSFont *base = [self eau_systemFontOfSize:fontSize];
-  return [self eau_fontOrDefault:base size:fontSize];
+  /* The system font is non-bold by contract; enforce it so a fontconfig
+   * mis-resolution cannot render regular text bold.  Weight 6 is the
+   * platform's regular UI face (Inter-Medium on this system, matching what
+   * a correct GNUstep resolves), not 5 (Inter-Regular). */
+  return [self eau_fontOrDefault: base size: fontSize weight: 6];
 }
 
 + (NSFont *)eau_boldSystemFontOfSize:(CGFloat)fontSize
 {
   NSFont *base = [self eau_boldSystemFontOfSize:fontSize];
-  return [self eau_fontOrDefault:base size:fontSize];
+  /* The bold system font must be bold; enforce it so a fontconfig
+   * mis-resolution cannot render the headline weight regular. */
+  return [self eau_fontOrDefault: base size: fontSize weight: 9];
 }
 
 + (NSFont *)eau_controlContentFontOfSize:(CGFloat)fontSize
