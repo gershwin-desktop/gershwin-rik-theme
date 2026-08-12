@@ -8,30 +8,34 @@
  */
 
 #import <AppKit/AppKit.h>
-
-@implementation NSTextView (EauKeyEquivalents)
+#import <objc/runtime.h>
 
 /* Handle Cmd+A/C/V/X/Z directly on any text view.
  *
  * WHY: GNUstep dispatches key equivalents by asking the key window, then
- * the main menu.  During modal dialogs the application's Edit menu items
- * are usually disabled (their validation only enables them when a file
- * viewer/desktop is the key window), so the key-equivalent dispatch
- * swallows these shortcuts without acting.  Handling them on the text view
- * keeps standard text editing working inside dialogs - and everywhere
- * else, since any field editor is an NSTextView too.
+ * the main menu.  When there is no Edit menu (Menu.app's search box, a
+ * dialog whose Edit items are disabled, a menu-less popup), the shortcut is
+ * never matched and Cmd+C/V/X/A fall through to the field editor's
+ * interpretKeyEvents:, whose default keybinding table has no entries for
+ * them - so the keys are inserted as plain text.  Intercepting keyDown: on
+ * the text view handles the standard editing shortcuts regardless of the
+ * menu state; a field editor is an NSTextView too, so search fields and
+ * dialog inputs are covered as well.
  *
  * Only act when this text view (or its window's field editor) is the first
  * responder, so we never steal Cmd+C from file operations in a viewer that
  * happens to contain an inactive text view.
  */
-- (BOOL)performKeyEquivalent:(NSEvent *)theEvent
+
+static void (*s_orig_keyDown)(id, SEL, NSEvent *) = NULL;
+
+static void s_eau_textView_keyDown(id self, SEL _cmd, NSEvent *event)
 {
-  if ([theEvent type] == NSKeyDown
-      && ([theEvent modifierFlags] & NSCommandKeyMask)
+  if ([event type] == NSKeyDown
+      && ([event modifierFlags] & NSCommandKeyMask)
       && [[self window] firstResponder] == self)
     {
-      NSString *key = [theEvent charactersIgnoringModifiers];
+      NSString *key = [event charactersIgnoringModifiers];
       if ([key length] == 1)
         {
           unichar c = [key characterAtIndex: 0];
@@ -39,18 +43,18 @@
             {
               case 'a':
                 [self selectAll: self];
-                return YES;
+                return;
               case 'c':
                 [self copy: self];
-                return YES;
+                return;
               case 'v':
                 [self paste: self];
-                return YES;
+                return;
               case 'x':
                 [self cut: self];
-                return YES;
+                return;
               case 'z':
-                if ([theEvent modifierFlags] & NSShiftKeyMask)
+                if ([event modifierFlags] & NSShiftKeyMask)
                   {
                     [[self undoManager] redo];
                   }
@@ -58,13 +62,25 @@
                   {
                     [[self undoManager] undo];
                   }
-                return YES;
+                return;
               default:
                 break;
             }
         }
     }
-  return [super performKeyEquivalent: theEvent];
+  if (s_orig_keyDown)
+    s_orig_keyDown(self, _cmd, event);
 }
 
-@end
+/* The field editor is created on demand and is an NSTextView, so swizzling
+   NSTextView -keyDown: covers every editable control in the app. */
+__attribute__((constructor))
+static void eau_installTextViewKeyDown(void)
+{
+  Class cls = objc_getClass("NSTextView");
+  if (!cls) return;
+  Method m = class_getInstanceMethod(cls, @selector(keyDown:));
+  if (!m) return;
+  s_orig_keyDown = (void (*)(id, SEL, NSEvent *))method_getImplementation(m);
+  method_setImplementation(m, (IMP)s_eau_textView_keyDown);
+}
