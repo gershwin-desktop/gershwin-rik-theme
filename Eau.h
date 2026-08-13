@@ -46,6 +46,7 @@
 + (NSColor *) controlStrokeColor;
 - (void) invalidateScaleFactorCache;
 - (void) invalidateTitleTextAttributes;
+- (CGFloat) menuItemIconSize;
 - (void) drawPathButton: (NSBezierPath*) path
                      in: (NSCell*)cell
 			            state: (GSThemeControlState) state;
