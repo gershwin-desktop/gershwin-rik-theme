@@ -22,10 +22,10 @@
 #import <objc/runtime.h>
 
 /* Edge scrolling parameters */
-#define EDGE_SCROLL_THRESHOLD  30.0   // Pixels from edge to trigger autoscroll
-#define EDGE_SCROLL_RATE       60.0   // Points per second
+#define EDGE_SCROLL_THRESHOLD  40.0   // Pixels from edge to trigger autoscroll
+#define EDGE_SCROLL_RATE       300.0  // Points per second
 #define EDGE_SCROLL_FPS        30.0   // Timer frequency
-#define SCROLL_WHEEL_FACTOR    3.0    // Multiplier for scroll wheel deltas
+#define SCROLL_WHEEL_FACTOR    8.0    // Multiplier for scroll wheel deltas
 
 /* Association key for attaching scroll manager to views/windows */
 static char kEauScrollManagerAssociationKey;
@@ -163,6 +163,11 @@ static char kEauScrollManagerAssociationKey;
     }
   else
     {
+      /* Lazy-loaded menus (e.g. Menu.app's Applications submenu, populated
+       * when the Command menu opens) may have been sized with fewer items
+       * first, leaving the manager's total content height stale.  Refresh it
+       * so maxScrollOffset reflects the full menu. */
+      [mgr setTotalContentHeight: totalHeight];
       [mgr setVisibleHeight: visibleHeight];
     }
 
@@ -243,6 +248,18 @@ static char kEauScrollManagerAssociationKey;
 {
   _visibleHeight = height;
   // Re-clamp scroll offset
+  self.scrollOffset = _scrollOffset;
+}
+
+- (void) setTotalContentHeight: (CGFloat)height
+{
+  _totalContentHeight = height;
+  /* Re-initialise to show the TOP of the menu, like the initial setup:
+     the first time this manager is created the menu may have had only a
+     few items (lazy population), leaving scrollOffset at 0 (= bottom of
+     content).  With the full height available now, reset to the top so
+     item 0 is what the user sees first. */
+  _scrollOffset = MAX(0, _totalContentHeight - _visibleHeight);
   self.scrollOffset = _scrollOffset;
 }
 

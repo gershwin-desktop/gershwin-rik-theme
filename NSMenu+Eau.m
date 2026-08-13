@@ -41,22 +41,31 @@
 @end
 
 /* ---- Helper: find NSMenuView in an NSMenuPanel's content view hierarchy ---- */
+static NSView *_eau_findMenuViewInView(NSView *view)
+{
+  if (view == nil) return nil;
+  if ([view isKindOfClass: objc_getClass("NSMenuView")])
+    {
+      return view;
+    }
+  for (NSView *subview in [view subviews])
+    {
+      NSView *found = _eau_findMenuViewInView(subview);
+      if (found) return found;
+    }
+  return nil;
+}
+
 static NSMenuView *_eau_findMenuViewInWindow(NSWindow *window)
 {
   if (!window) return nil;
   NSView *contentView = [window contentView];
   if (!contentView) return nil;
 
-  // NSMenuView is typically a direct subview of the content view.
-  // Look through all subviews for an NSMenuView.
-  for (NSView *subview in [contentView subviews])
-    {
-      if ([subview isKindOfClass: objc_getClass("NSMenuView")])
-        {
-          return (NSMenuView *)subview;
-        }
-    }
-  return nil;
+  // NSMenuView is typically a direct subview of the content view, but some
+  // apps (e.g. Menu.app's Command menu) wrap it in an intermediate NSView.
+  // Recurse so the scroll manager is found regardless of nesting depth.
+  return (NSMenuView *)_eau_findMenuViewInView(contentView);
 }
 
 /* ---- Overflow handling for tall menus ---- */
@@ -476,8 +485,6 @@ static BOOL s_eau_trackWithEvent(id self, SEL _cmd, NSEvent *event)
 {
   _eau_activeTrackingCount++;
   _eau_trackedMenuView = (NSMenuView *)self;
-  NSDebugLog(@"Eau+Menu: trackWithEvent start tracking=%d view=%@",
-             _eau_activeTrackingCount, self);
   BOOL result = NO;
   @try
     {
@@ -497,6 +504,58 @@ static BOOL s_eau_trackWithEvent(id self, SEL _cmd, NSEvent *event)
 /* ---- nextEventMatchingMask: swizzle for scroll wheel during tracking ---- */
 
 static NSEvent* (*s_orig_nextEventMatchingMask)(id, SEL, NSUInteger, NSDate*, NSString*, BOOL) = NULL;
+
+/* Find the scroll manager for the menu currently being tracked.
+ *
+ * The scroll manager is associated with the MENU VIEW's window (and the view
+ * itself), set up by setupOverflowForMenuView: when the menu was displayed.
+ * [NSApp keyWindow] is NOT reliable during tracking: GNUstep menu panels are
+ * not key windows, and in Menu.app (global menu bar) the key window is often
+ * nil while a dropdown is open.  So walk the tracked view's attached-submenu
+ * chain (same logic as the keyboard-navigation code) to the deepest OPEN
+ * submenu and look the manager up on its window/view.  Fall back to the key
+ * window for non-menu apps where that works.
+ */
+static EauMenuScrollManager *_eau_activeScrollManager(void)
+{
+  if (_eau_activeTrackingCount <= 0) return nil;
+
+  NSMenuView *view = _eau_trackedMenuView;
+  while (view)
+    {
+      NSWindow *w = [view window];
+      if (w)
+        {
+          EauMenuScrollManager *mgr = [EauMenuScrollManager scrollManagerForWindow: w];
+          if (!mgr)
+            {
+              mgr = [EauMenuScrollManager scrollManagerForMenuView: view];
+            }
+          if (mgr) return mgr;
+        }
+      NSMenuView *attached = [view attachedMenuView];
+      NSWindow *aw = [attached window];
+      if (!attached || !aw || ![aw isVisible]) break; // closed submenu
+      view = attached;
+    }
+
+  // Fallback: some apps make the menu panel the key window.
+  NSWindow *keyWindow = [NSApp keyWindow];
+  if (keyWindow)
+    {
+      EauMenuScrollManager *mgr = [EauMenuScrollManager scrollManagerForWindow: keyWindow];
+      if (!mgr)
+        {
+          NSMenuView *menuView = _eau_findMenuViewInWindow(keyWindow);
+          if (menuView)
+            {
+              mgr = [EauMenuScrollManager scrollManagerForMenuView: menuView];
+            }
+        }
+      if (mgr) return mgr;
+    }
+  return nil;
+}
 
 static NSEvent* s_eau_nextEventMatchingMask(id self, SEL _cmd, NSUInteger mask, NSDate *date, NSString *mode, BOOL dequeue)
 {
@@ -538,18 +597,9 @@ static NSEvent* s_eau_nextEventMatchingMask(id self, SEL _cmd, NSUInteger mask, 
       // edge scrolling doesn't fire reliably in NSEventTrackingRunLoopMode
       // on this GNUstep version.  pollEdgeScroll has its own throttle.
       {
-        NSWindow *keyWindow = [NSApp keyWindow];
-        if (keyWindow)
+        EauMenuScrollManager *mgr = _eau_activeScrollManager();
+        if (mgr)
           {
-            EauMenuScrollManager *mgr = [EauMenuScrollManager scrollManagerForWindow: keyWindow];
-            if (!mgr)
-              {
-                NSMenuView *menuView = _eau_findMenuViewInWindow(keyWindow);
-                if (menuView)
-                  {
-                    mgr = [EauMenuScrollManager scrollManagerForMenuView: menuView];
-                  }
-              }
             [mgr pollEdgeScroll];
           }
       }
@@ -557,23 +607,11 @@ static NSEvent* s_eau_nextEventMatchingMask(id self, SEL _cmd, NSUInteger mask, 
       // --- Scroll wheel handling ---
       if ([event type] == NSScrollWheel)
         {
-          NSWindow *keyWindow = [NSApp keyWindow];
-          if (keyWindow)
+          EauMenuScrollManager *mgr = _eau_activeScrollManager();
+          if (mgr && [mgr isScrolling])
             {
-              EauMenuScrollManager *mgr = [EauMenuScrollManager scrollManagerForWindow: keyWindow];
-              if (!mgr)
-                {
-                  NSMenuView *menuView = _eau_findMenuViewInWindow(keyWindow);
-                  if (menuView)
-                    {
-                      mgr = [EauMenuScrollManager scrollManagerForMenuView: menuView];
-                    }
-                }
-              if (mgr && [mgr isScrolling])
-                {
-                  CGFloat deltaY = [event deltaY];
-                  [mgr scrollByDelta: deltaY];
-                }
+              CGFloat deltaY = [event deltaY];
+              [mgr scrollByDelta: deltaY];
             }
         }
 

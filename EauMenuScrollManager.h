@@ -68,6 +68,10 @@
 /// Update visible height (e.g., on window resize)
 - (void) setVisibleHeight: (CGFloat)height;
 
+/// Update the total content height (e.g. when a lazily-populated menu grows
+/// after the scroll manager was first created).  Re-clamps scrollOffset.
+- (void) setTotalContentHeight: (CGFloat)height;
+
 /// Apply a scroll wheel delta (negative = scroll down, positive = scroll up)
 - (void) scrollByDelta: (CGFloat)deltaY;
 
