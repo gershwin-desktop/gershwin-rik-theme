@@ -285,19 +285,24 @@
   if (_cell.type == NSTextCellType)
     {
       NSRect frame = [self drawingRectForBounds: theRect];
-      if (_cell.is_bordered || _cell.is_bezeled)
-        {
-          frame.origin.x += TEXT_LEFT_OFFSET;
-          frame.size.width -= (TEXT_LEFT_OFFSET + 14);
 
-          /* Vertically centre the text within the search field */
-          CGFloat fontHeight = [[self font] boundingRectForFont].size.height;
-          if (fontHeight > 0 && fontHeight < NSHeight(frame))
-            {
-              CGFloat yShift = (NSHeight(frame) - fontHeight) / 2.0;
-              frame.origin.y += yShift;
-              frame.size.height = fontHeight;
-            }
+      /* Always leave room for the magnifier and centre the text.  The search
+       * field's cell reports isBordered/isBezeled == NO on this stack (the
+       * field is set drawsBackground:NO and Eau draws the bezel manually),
+       * so the bordered/bezeled check would skip the inset and draw the
+       * placeholder under the magnifier and top-left instead of centred. */
+      frame.origin.x += TEXT_LEFT_OFFSET;
+      frame.size.width -= (TEXT_LEFT_OFFSET + 14);
+
+      /* Vertically centre the text within the search field.  GNUstep
+       * draws string glyphs top-aligned within the rect, so centering
+       * the font's bounding box is correct. */
+      CGFloat fontHeight = [[self font] boundingRectForFont].size.height;
+      if (fontHeight > 0 && fontHeight < NSHeight(frame))
+        {
+          CGFloat yShift = (NSHeight(frame) - fontHeight) / 2.0;
+          frame.origin.y += yShift;
+          frame.size.height = fontHeight;
         }
       return frame;
     }
