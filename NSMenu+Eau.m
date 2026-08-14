@@ -348,37 +348,17 @@ static void _eau_closeStaleMenuPanelsForMenu(NSMenu *openingMenu)
 {
   if (openingMenu == nil) return;
 
-  /* Membership is by POINTER IDENTITY only.  A panel's _menu can point at a
-     menu that was already torn down by the tracking loop (freed, dangling):
-     sending it -hash / -isEqual: via -[NSSet containsObject:] then crashes.
-     Address comparisons never message the candidate object. */
-  NSMutableSet *keepAddrs = [NSMutableSet set];
-  NSMenu *m = openingMenu;
-  while (m != nil)
-    {
-      [keepAddrs addObject: [NSValue valueWithPointer: (const void *)m]];
-      m = [m supermenu];
-    }
-
   Class panelClass = objc_getClass("NSMenuPanel");
   if (panelClass == nil) return;
 
-  for (NSWindow *w in [NSApp windows])
-    {
-      if (![w isKindOfClass: panelClass]) continue;
-      if (![w isVisible]) continue;
-      NSMenu *pm = [(id)w _menu];
-      if (pm == nil) continue;
-      if ([keepAddrs containsObject: [NSValue valueWithPointer: (const void *)pm]]) continue;
-      if ([pm isTornOff] || [pm isTransient]) continue;
-      NSDebugLog(@"Eau+Menu: closing stale menu panel %@ before opening %@",
-                 pm, openingMenu);
-      @try
-        {
-          [pm close];
-        }
-      @catch (NSException *e) {}
-    }
+  /* NOTE: we deliberately do NOT iterate [NSApp windows] here.  GNUstep menu
+   * panels have is_released_when_closed set, so the tracking loop frees them;
+   * a panel that appears in [NSApp windows] can already be deallocated (its
+   * memory reused - the freed-object pattern fills it with the NSMenuPanel
+   * class pointer), and messaging it then SIGSEGVs.  The stale-panel "wedge"
+   * is an X11-mapping problem, so the X11-level withdrawal below is the
+   * correct and crash-free way to fix it.
+   */
 
   /* X11-level fallback: withdraw every still-mapped "Menu" dropdown window
      that is not part of the opening menu's keep-set.  AppKit's visibility
@@ -386,21 +366,28 @@ static void _eau_closeStaleMenuPanelsForMenu(NSMenu *openingMenu)
      flagged hidden by the tracking loop while its X11 window remains mapped
      (that is the wedge this enforcement exists to prevent).  Withdrawing,
      rather than destroying, keeps the cached NSMenuPanel window usable for
-     later re-display. */
+     later re-display.
+     The keep-set is built from openingMenu's own window chain (menus, which
+     are retained by the menu system and cannot dangle), NOT from [NSApp
+     windows] (which can contain freed panels). */
   _eau_ensureState();
   if (_eau_x11_display == NULL) return;
 
   NSMutableSet *keepXids = [NSMutableSet set];
-  for (NSWindow *w in [NSApp windows])
-    {
-      if (![w isKindOfClass: panelClass]) continue;
-      NSMenu *pm = [(id)w _menu];
-      if (pm == nil) continue;
-      if (![keepAddrs containsObject: [NSValue valueWithPointer: (const void *)pm]]) continue;
-      unsigned long xid = (unsigned long)[w windowRef];
-      if (xid != 0)
-        [keepXids addObject: [NSNumber numberWithUnsignedLong: xid]];
-    }
+  {
+    NSMenu *km = openingMenu;
+    while (km != nil)
+      {
+        NSWindow *pw = [km window];
+        if (pw != nil)
+          {
+            unsigned long xid = (unsigned long)[pw windowRef];
+            if (xid != 0)
+              [keepXids addObject: [NSNumber numberWithUnsignedLong: xid]];
+          }
+        km = [km supermenu];
+      }
+  }
 
   Window root = DefaultRootWindow(_eau_x11_display);
   Window unused_root, unused_parent;
@@ -417,6 +404,7 @@ static void _eau_closeStaleMenuPanelsForMenu(NSMenu *openingMenu)
       XWindowAttributes attr;
       if (!XGetWindowAttributes(_eau_x11_display, w, &attr))
         continue;
+
       if (attr.map_state != IsViewable)
         continue;
 
