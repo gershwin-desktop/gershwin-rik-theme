@@ -66,22 +66,9 @@ Eau_OBJC_FILES = \
 		GSDisplayServer+Eau.m\
 		Eau+DragTool.m
 
-# StepTalk scripting support (auto-detected on install)
-STEPTALK_LIB := $(firstword $(wildcard \
-  $(GNUSTEP_SYSTEM_LIBRARY)/Libraries/libStepTalk.so \
-  $(GNUSTEP_LOCAL_LIBRARY)/Libraries/libStepTalk.so \
-  $(GNUSTEP_LIBRARY)/Libraries/libStepTalk.so))
-with_steptalk = $(if $(STEPTALK_LIB),yes)
-ifeq ($(with_steptalk), yes)
-  Eau_OBJC_FILES += NSApplication+STScripting.m
-endif
-
 ADDITIONAL_TOOL_LIBS =
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-arc-exceptions
 ADDITIONAL_LDFLAGS += -lX11
-ifeq ($(with_steptalk), yes)
-  ADDITIONAL_LDFLAGS += -lStepTalk
-endif
 $(BUNDLE_NAME)_RESOURCE_FILES = \
 	./Resources/ThemeIcon.png\
 	./Resources/ThemePreview.png\

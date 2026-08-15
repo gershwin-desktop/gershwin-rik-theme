@@ -9,11 +9,6 @@ Eau: default Aqua-style theme bundle for the Gershwin Desktop, targets GNUstep (
 - Files are compiled with `-fobjc-arc -fobjc-arc-exceptions` and link `-lX11`. Fix every build warning.
 - There is no `GNUmakefile.in`; edit `GNUmakefile` directly (still check for a `.in` sibling before editing).
 
-## Conditional StepTalk support
-- `NSApplication+STScripting.m` is compiled ONLY if `libStepTalk.so` is auto-detected (see `GNUmakefile` `STEPTALK_LIB`). Do not assume it is in `Eau_OBJC_FILES`.
-- It must NOT have a `+load` doing async work during bundle load (this previously corrupted the runtime and broke the menu), and must load libStepTalk via `dlopen` at runtime. Keep it opt-in.
-- Never register a DO service name that could collide with other processes (Menu.app etc.).
-
 ## Method swizzling (major pattern)
 - Most UI customization is done by swizzling Foundation/GNUstep methods under `+ (void) load` with `dispatch_once`, using `class_addMethod` + `method_exchangeImplementations` (see `NSButton+Eau.m`, `NSWindow+Eau.m`, `NSButtonCell+Eau.m`). A few files instead use `method_setImplementation` with C-function IMPs (e.g. `NSMenu+Eau.m`, `NSMenuView+Eau.m`, `GSDisplayServer+Eau.m`) or direct swizzle helpers.
 - When touching a `+Eau` category, always add a new `eauXxx` swizzled selector and call it to reach the original - never fully replace the method body.
