@@ -43,10 +43,6 @@
 /* Maximum size for the icon shown in front of a menu item (the image column,
    used for application and preference-pane icons).  Icons are scaled down to
    fit this box, never up, so a large app bundle icon renders small. */
-- (CGFloat) menuItemIconSize
-{
-  return 18.0;
-}
 - (CGFloat) menuSeparatorHeight
 {
   return 1.0;

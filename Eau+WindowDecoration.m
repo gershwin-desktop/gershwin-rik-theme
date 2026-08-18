@@ -4,17 +4,18 @@
 
 @interface Eau(EauWindowDecoration)
 
+/* Drop the cached title-text attributes so the next render re-prepares them
+ * with the current GSScaleFactor. */
 - (void)invalidateTitleTextAttributes;
 
 @end
 
-
 #define RESIZE_HEIGHT 9.0
 
-@implementation Eau(EauWindowDecoration)
-
+/* Cached title text attributes for each theme control state (0=active, 1=inactive, 2=main). */
 static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
 
+@implementation Eau(EauWindowDecoration)
 
 - (float) resizebarHeight {
     return 0.0;  // No resize bar

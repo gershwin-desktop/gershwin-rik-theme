@@ -63,8 +63,7 @@ Eau_OBJC_FILES = \
 		NSMenu+Eau.m\
 		NSBox+Eau.m\
 		NSPopUpButton+Eau.m\
-		GSDisplayServer+Eau.m\
-		Eau+DragTool.m
+		GSDisplayServer+Eau.m
 
 ADDITIONAL_TOOL_LIBS =
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-arc-exceptions
