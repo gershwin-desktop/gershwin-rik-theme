@@ -205,8 +205,11 @@ static char kEauAppNameKey;
                     }
                 }
             }
-          else if ([val hasPrefix: @"Author:"] || [val hasPrefix: @"Authors:"])
+          else if ([val hasSuffix: @": "] || [val hasSuffix: @":"])
             {
+              // The author title label is localized (e.g. "Authors: ",
+              // "Autoren: "), so match it by its trailing colon instead
+              // of hard-coding English prefixes.
               authorTitleLabel = tf;
             }
           else if ([val hasSuffix: @".org"] || [val hasSuffix: @".com"]
@@ -286,15 +289,20 @@ static char kEauAppNameKey;
               [authorField setFont: [NSFont systemFontOfSize: 12]];
               [[authorField cell] setWraps: YES];
               [[authorField cell] setScrollable: NO];
-              [authorField sizeToFit];
-              // Cap width so multi-line text wraps within the window
-              if (NSWidth([authorField frame]) > 288.0)
-                {
-                  NSRect af0 = [authorField frame];
-                  af0.size.width = 288.0;
-                  [authorField setFrame: af0];
-                  [authorField sizeToFit];
-                }
+              // GNUstep sizeToFit ignores the frame width for wrapping
+              // fields, so measure the wrapped size explicitly and cap the
+              // width so multi-line text stays within the window.
+              {
+                NSDictionary *attrs =
+                  [NSDictionary dictionaryWithObject: [NSFont systemFontOfSize: 12]
+                                              forKey: NSFontAttributeName];
+                NSRect wr = [[authorField stringValue]
+                  boundingRectWithSize: NSMakeSize(288.0, 10000)
+                               options: NSStringDrawingUsesLineFragmentOrigin
+                            attributes: attrs];
+                [authorField setFrame: NSMakeRect(0, 0,
+                                MIN(NSWidth(wr), 288.0), NSHeight(wr))];
+              }
             }
         }
     }
@@ -332,36 +340,26 @@ static char kEauAppNameKey;
   CGFloat crDescH = copyrightDescriptionLabel ? NSHeight([copyrightDescriptionLabel frame]) : 0;
   CGFloat themeH = NSHeight([themeLabel frame]);
 
-  // Find the widest element
-  __block CGFloat maxW = 288.0; // 360 - 36*2 margin
-  void (^widen)(NSView *) = ^(NSView *v) {
-    if (!v) return;
-    CGFloat w = NSWidth([v frame]);
-    if (w > maxW) maxW = w;
-  };
-  widen(nameLabel);
-  widen(descriptionLabel);
-  widen(versionLabel);
-  if (authorField) {
-    CGFloat w = NSWidth([authorField frame]);
-    if (w > maxW) maxW = w;
-  }
-  if (urlButton) { CGFloat w = NSWidth([urlButton frame]); if (w > maxW) maxW = w; }
-  widen(copyrightLabel);
-  widen(copyrightDescriptionLabel);
-  widen(themeLabel);
-
-  // Reflow any text fields that exceed the content width
+  // Reflow any text fields that exceed the content width (the 360pt
+  // window minus the two 36pt margins), so that long text wraps instead
+  // of overflowing the window.
   {
-    CGFloat cw = maxW; // content width is already capped at 288
+    CGFloat cw = 288.0;
     void (^reflow)(NSTextField *) = ^(NSTextField *tf) {
       if (!tf || NSWidth([tf frame]) <= cw) return;
+      // GNUstep sizeToFit ignores the frame width for wrapping fields,
+      // so measure the wrapped height explicitly.
+      NSDictionary *attrs = [NSDictionary dictionaryWithObject: [tf font]
+                                                        forKey: NSFontAttributeName];
+      NSRect nr = [[tf stringValue] boundingRectWithSize: NSMakeSize(cw, 10000)
+                                                 options: NSStringDrawingUsesLineFragmentOrigin
+                                              attributes: attrs];
       NSRect f = [tf frame];
       f.size.width = cw;
+      f.size.height = NSHeight(nr);
       [tf setFrame: f];
       [[tf cell] setWraps: YES];
       [[tf cell] setScrollable: NO];
-      [tf sizeToFit];
     };
     reflow(descriptionLabel);
     reflow(versionLabel);
