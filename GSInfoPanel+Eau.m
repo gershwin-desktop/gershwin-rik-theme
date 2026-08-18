@@ -518,7 +518,20 @@ static char kEauAppNameKey;
 
 - (void)eau_setTitle:(NSString *)title
 {
-  if ([title isEqualToString: NSLocalizedString(@"Info", @"Title of the Info Panel")])
+  /* NSApplication titles the standard About/Info panel with the localized
+   * "Info" string, but it resolves from the GNUstep framework bundle, not
+   * from the app's own bundle (which has no lproj entry for it).  Comparing
+   * against the app's own NSLocalizedString(@"Info") therefore only ever
+   * matched the English "Info" and left the panel untranslated on other
+   * locales (e.g. "Information" in German).  Compare against the framework's
+   * resolution so the rename to "About <App>" applies on every locale; the
+   * literal "Info" fallback covers resolutions that return the raw key. */
+  NSBundle *guiBundle = [NSBundle bundleForClass: [GSInfoPanel class]];
+  NSString *frameworkInfo = [guiBundle localizedStringForKey: @"Info"
+                                                       value: @"Info"
+                                                       table: nil];
+  if ([title isEqualToString: frameworkInfo]
+      || [title isEqualToString: @"Info"])
     {
       NSString *appName = [[NSProcessInfo processInfo] processName];
       title = [NSString stringWithFormat: _(@"About %@"), appName];
