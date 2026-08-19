@@ -240,7 +240,11 @@ static NSDictionary *titleTextAttributes[3] = {nil, nil, nil};
 
 - (NSColor *) windowFrameBorderColor
 {
-  return [Eau controlStrokeColor];
+  // The window manager uses this as the X11 back_pixel for window frames,
+  // which is what is visible while a window is still incomplete (before the
+  // client has drawn its content).  Match the window background so those
+  // frames do not flash dark grey.
+  return [NSColor windowBackgroundColor];
 }
 
 - (void) drawResizeBarRect: (NSRect)resizeBarRect
