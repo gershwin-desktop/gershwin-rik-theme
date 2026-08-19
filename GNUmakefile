@@ -22,6 +22,7 @@ Eau_OBJC_FILES = \
 		Eau+Menu.m\
 		Eau+Slider.m\
 		Eau+ProgressIndicator.m\
+		EauProgressView.m\
 		Eau+Scroller.m\
 		Eau+ColorWell.m\
 		Eau+Stepper.m\
@@ -63,6 +64,7 @@ Eau_OBJC_FILES = \
 		NSMenu+Eau.m\
 		NSBox+Eau.m\
 		NSPopUpButton+Eau.m\
+		NSProgressIndicator+Eau.m\
 		GSDisplayServer+Eau.m
 
 ADDITIONAL_TOOL_LIBS =
