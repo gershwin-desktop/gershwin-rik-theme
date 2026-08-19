@@ -2,6 +2,7 @@
 #import "Eau.h"
 
 #import <Foundation/NSArray.h>
+#import <Foundation/NSRegularExpression.h>
 #import <Foundation/NSTask.h>
 
 #import <AppKit/NSApplication.h>
@@ -23,8 +24,45 @@
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Replace "Copyright (c)", "Copyright (C)", bare "(c)"/"(C)" and
+// "(tm)"/"(TM)" (and case variations) markers with the unicode copyright
+// and trademark symbols.
+static NSString *
+_eau_symbolizeMarks(NSString *text)
+{
+  if ([text length] == 0)
+    return text;
+
+  static NSRegularExpression *copyrightRe = nil;
+  static NSRegularExpression *cRe = nil;
+  static NSRegularExpression *tmRe = nil;
+
+  if (copyrightRe == nil)
+    {
+      copyrightRe = [NSRegularExpression regularExpressionWithPattern:
+        @"Copyright\\s*\\((c|C)\\)"
+        options: NSRegularExpressionCaseInsensitive
+        error: NULL];
+      cRe = [NSRegularExpression regularExpressionWithPattern:
+        @"\\((c|C)\\)" options: 0 error: NULL];
+      tmRe = [NSRegularExpression regularExpressionWithPattern:
+        @"\\((t|T)(m|M)\\)" options: 0 error: NULL];
+    }
+
+  text = [copyrightRe stringByReplacingMatchesInString: text
+    options: 0 range: NSMakeRange(0, [text length])
+    withTemplate: @"\u00A9"];
+  text = [cRe stringByReplacingMatchesInString: text
+    options: 0 range: NSMakeRange(0, [text length])
+    withTemplate: @"\u00A9"];
+  text = [tmRe stringByReplacingMatchesInString: text
+    options: 0 range: NSMakeRange(0, [text length])
+    withTemplate: @"\u2122"];
+  return text;
+}
+
 // ---------------------------------------------------------------------------
-// URL button — shows pointing-hand cursor on hover, no highlight
+// URL button - shows pointing-hand cursor on hover, no highlight
 // ---------------------------------------------------------------------------
 @interface _EauURLButton : NSButton
 @end
@@ -222,11 +260,15 @@ static char kEauAppNameKey;
             {
               copyrightLabel = tf;
               [tf setAlignment: NSCenterTextAlignment];
+              [tf setStringValue: _eau_symbolizeMarks([tf stringValue])];
+              [tf sizeToFit];
             }
           else
             {
               copyrightDescriptionLabel = tf;
               [tf setAlignment: NSCenterTextAlignment];
+              [tf setStringValue: _eau_symbolizeMarks([tf stringValue])];
+              [tf sizeToFit];
             }
           continue;
         }
