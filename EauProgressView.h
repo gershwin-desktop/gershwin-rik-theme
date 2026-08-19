@@ -25,6 +25,12 @@
   NSTimer *__weak _animationTimer;
   NSProgressIndicator *__weak _indicator;
 
+  double _displayedFraction;
+  double _targetFraction;
+  double _valueTweenFrom;
+  NSTimeInterval _tweenStartTime;
+  BOOL _displayedFractionInitialized;
+
   NSGradient *_sheenGradient;
   NSBezierPath *_trackPath;
   NSRect _cachedPathBounds;

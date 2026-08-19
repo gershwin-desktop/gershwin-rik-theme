@@ -27,6 +27,8 @@
 #define EAU_PROGRESS_FRAME_INTERVAL (1.0 / 30.0)
 /* One full sweep; 1.5-2.5 s reads as "slow, continuous". */
 #define EAU_PROGRESS_CYCLE_SECONDS 2.0
+/* How long a value change takes to ease the fill to its new fraction. */
+#define EAU_PROGRESS_VALUE_ANIMATION_SECONDS 0.4
 /* Wave band width, fixed in pixels so it never depends on the bar size. */
 #define EAU_PROGRESS_SHEEN_BAND_WIDTH 32.0
 /* Indeterminate bars travel broader waves across the full track. */
@@ -85,8 +87,7 @@
     {
       _doubleValue = value;
       /* Crossing the full-progress line can stop or restart the sweep. */
-      [self _updateAnimationTimer];
-      [self setNeedsDisplay: YES];
+      [self _valuesDidChange];
     }
 }
 
@@ -100,7 +101,7 @@
   if (_minValue != value)
     {
       _minValue = value;
-      [self setNeedsDisplay: YES];
+      [self _valuesDidChange];
     }
 }
 
@@ -114,7 +115,7 @@
   if (_maxValue != value)
     {
       _maxValue = value;
-      [self setNeedsDisplay: YES];
+      [self _valuesDidChange];
     }
 }
 
@@ -123,7 +124,9 @@
   return _maxValue;
 }
 
-- (double) _progressFraction
+/* The fraction the app asked for; the fill eases toward it, so drawing and
+ * the wave clip read the tweened _displayedFraction instead. */
+- (double) _targetFraction
 {
   double span = _maxValue - _minValue;
   if (span <= 0)
@@ -134,6 +137,28 @@
   if (fraction > 1.0)
     return 1.0;
   return fraction;
+}
+
+- (double) _progressFraction
+{
+  return _displayedFraction;
+}
+
+/* A changed value does not snap the fill: unless the bar has never drawn
+ * yet (initial setup snaps so opening a window does not fake a fill-up from
+ * zero), the current fraction tweens toward the new target on the sweep
+ * timer. */
+- (void) _valuesDidChange
+{
+  _targetFraction = [self _targetFraction];
+  if (_displayedFractionInitialized
+      && _targetFraction != _displayedFraction)
+    {
+      _valueTweenFrom = _displayedFraction;
+      _tweenStartTime = [NSDate timeIntervalSinceReferenceDate];
+    }
+  [self _updateAnimationTimer];
+  [self setNeedsDisplay: YES];
 }
 
 #pragma mark - Modes
@@ -201,7 +226,9 @@
   BOOL wantsAnimation = _animated
     && [self window] != nil
     && ![self isHidden]
-    && (_indeterminate || [self _progressFraction] < 1.0
+    && (_indeterminate
+        || [self _targetFraction] < 1.0
+        || [self _targetFraction] != [self _progressFraction]
         || _animatesWhenFinished);
 
   if (wantsAnimation && _animationTimer == nil)
@@ -244,6 +271,24 @@
         }
     }
   _lastTickTime = now;
+
+  /* Ease the fill toward the requested fraction (ease-out cubic: quick
+   * start, settle).  The tween is time-based, so a dropped frame here only
+   * skips a frame, never overshoots. */
+  if (_displayedFractionInitialized
+      && _targetFraction != _displayedFraction)
+    {
+      NSTimeInterval t = (now - _tweenStartTime)
+        / EAU_PROGRESS_VALUE_ANIMATION_SECONDS;
+      if (t >= 1.0)
+        _displayedFraction = _targetFraction;
+      else
+        {
+          double eased = 1.0 - pow(1.0 - t, 3.0);
+          _displayedFraction = _valueTweenFrom
+            + (_targetFraction - _valueTweenFrom) * eased;
+        }
+    }
   [self setNeedsDisplay: YES];
 }
 
@@ -303,6 +348,14 @@
   NSRect bounds = [self bounds];
   if (NSIsEmptyRect(bounds))
     return;
+
+  /* The first paint shows the requested value as-is; only later value
+   * changes tween, so opening a window never fakes a fill-up from zero. */
+  if (!_displayedFractionInitialized)
+    {
+      _displayedFraction = _targetFraction;
+      _displayedFractionInitialized = YES;
+    }
 
   /* 1. The classic theme bar, painted exactly as the theme paints it: track,
    * glossy fill, indeterminate pattern, border, and fill-edge divider.  The
