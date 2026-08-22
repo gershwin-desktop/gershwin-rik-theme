@@ -64,6 +64,7 @@ Eau_OBJC_FILES = \
 		NSMenu+Eau.m\
 		NSBox+Eau.m\
 		NSPopUpButton+Eau.m\
+		NSComboBox+Eau.m\
 		NSProgressIndicator+Eau.m\
 		GSDisplayServer+Eau.m
 
