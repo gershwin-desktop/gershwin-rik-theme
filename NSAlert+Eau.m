@@ -282,6 +282,19 @@ static void eauAlertSetStopping(id panel, BOOL val)
 
     // In ARC, ivars are automatically released when the object is deallocated
     // We don't need to explicitly release them, but we can set them to nil for safety
+#if !__has_feature(objc_arc)
+    /* Non-ARC builds (the Tests/ unit-test tool links this file directly)
+       own the controls through their alloc/init here, so they must be
+       released and NSWindow's dealloc must run; under ARC both happen
+       implicitly when the ivar is zeroed. */
+    [defButton release];
+    [altButton release];
+    [othButton release];
+    [icoButton release];
+    [titleField release];
+    [messageField release];
+    [scroll release];
+#endif
     defButton = nil;
     altButton = nil;
     othButton = nil;
@@ -289,6 +302,9 @@ static void eauAlertSetStopping(id panel, BOOL val)
     titleField = nil;
     messageField = nil;
     scroll = nil;
+#if !__has_feature(objc_arc)
+    [super dealloc];
+#endif
     
     // NSLog(@"Eau: EauAlertPanel dealloc cleaning up completed");
     // In ARC, [super dealloc] is NOT called - it happens automatically
@@ -505,15 +521,26 @@ static void eauAlertSetStopping(id panel, BOOL val)
             if (!useControl(scroll))
                 [content addSubview: scroll];
             
-            [messageField removeFromSuperview];
+            /* Clear the clip view's document pointer FIRST: NSClipView
+               setDocumentView: early-returns when handed the same pointer,
+               so re-attaching after removeFromSuperview would be a silent
+               no-op and leave the scrolled variant empty on the second
+               sizePanelToFit pass (runModal always lays out twice). */
+            if ([scroll documentView] != nil)
+                [scroll setDocumentView: nil];
             width = [NSScrollView contentSizeForFrameSize: srect.size
                                     hasHorizontalScroller: NO
                                       hasVerticalScroller: YES
                                                borderType: [scroll borderType]].width;
             mrect.origin = NSZeroPoint;
-            mrect.size = [[messageField attributedStringValue]
-                          boundingRectWithSize: NSMakeSize(width, 1e6)
-                          options: NSStringDrawingUsesLineFragmentOrigin].size;
+            /* Fill the clip content width rather than hugging the longest
+               line, so the scrolled variant reads as a proper text area;
+               only the height comes from the measurement. */
+            mrect.size.width = width;
+            mrect.size.height =
+                [[messageField attributedStringValue]
+                 boundingRectWithSize: NSMakeSize(width, 1e6)
+                 options: NSStringDrawingUsesLineFragmentOrigin].size.height;
             [messageField setFrame: mrect];
             [scroll setDocumentView: messageField];
         }
