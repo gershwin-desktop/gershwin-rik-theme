@@ -218,6 +218,12 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
 - (void)verifyMenuClientRegistration
 {
   [self _ensureMenuClientRegistered];
+  /* A windowless app (no key window ever) has no setMenu:forWindow: call to
+     trigger a server connection.  Reconnect here so the app menu reaches
+     Menu.app even when Menu.app started after this app - the app-level push
+     is Menu.app's only way to learn about such apps. */
+  [self _ensureMenuServerConnection];
+  [self _pushApplicationMenu];
   [self scheduleMenuClientVerification];
 }
 
@@ -265,6 +271,11 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
                                                selector:@selector(_menuServerConnectionDidDie:)
                                                    name:NSConnectionDidDieNotification
                                                  object:menuServerConnection];
+      /* On a fresh connection push our application-level menu immediately, so
+         a windowless app appears in the menu bar as soon as Menu.app (re)starts.
+         _pushApplicationMenu re-enters _ensureMenuServerConnection, which
+         returns YES immediately because menuServerProxy is already set. */
+      [self _pushApplicationMenu];
       // NSDebugLog(@"Eau: Connected to GNUstep menu server");
       return YES;
     }
@@ -459,6 +470,22 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
                name:@"NSWindowDidBecomeKeyNotification"
              object:nil];
 
+      // Observe app activation so a windowless app re-pushes its
+      // application-level menu when it becomes the active application
+      // (e.g. via Alt-Tab or the app launcher).
+      [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(applicationDidBecomeActive:)
+               name:NSApplicationDidBecomeActiveNotification
+             object:nil];
+
+      // On termination, unregister the application-level menu.
+      [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(applicationWillTerminate:)
+               name:NSApplicationWillTerminateNotification
+             object:nil];
+
       // After any menu selection finishes, push updated enabled/state values
       // to Menu.app so items like Copy/Paste reflect the new app state without
       // requiring the user to open a submenu first.
@@ -543,10 +570,13 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
 - (void)_menuServerConnectionDidDie:(NSNotification *)notification
 {
   NSDebugLog(@"Eau: Menu server connection died");
-  NSDebugLog(@"Eau: Menu server connection died");
   menuServerConnection = nil;
   menuServerProxy = nil;
   menuServerConnected = NO;
+  /* Reconnect immediately and re-push the application-level menu so a
+     windowless app's menu survives a Menu.app restart. */
+  [self _ensureMenuServerConnection];
+  [self _pushApplicationMenu];
   // Automatic Menu.app restart disabled.
   // [[EauMenuRelaunchManager sharedManager] relaunchMenuProcessIfSnapshotAvailable];
 }
@@ -567,6 +597,37 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
         {
           NSDebugLog(@"Eau: No key window available for menu change notification");
         }
+      /* Always keep the application-level menu in sync too.  This is what the
+         menu bar shows when the app is frontmost but has no window (windowless
+         app, or the last window closed).  Menu.app deduplicates identical
+         pushes, so sending it here on every menu change is cheap. */
+      [self _pushApplicationMenu];
+    }
+}
+
+- (void) applicationDidBecomeActive: (NSNotification*)notification
+{
+  (void)notification;
+  /* A windowless app can become the active application (e.g. via Alt-Tab or
+     the app launcher) without any window becoming key.  Re-push the app menu
+     so Menu.app is guaranteed to show it. */
+  [self _pushApplicationMenu];
+}
+
+- (void) applicationWillTerminate: (NSNotification*)notification
+{
+  (void)notification;
+  if (!menuServerProxy)
+    {
+      return;
+    }
+  @try
+    {
+      [(id<GSGNUstepMenuServer>)menuServerProxy unregisterApplication:[self _menuClientName]];
+    }
+  @catch (NSException *exception)
+    {
+      NSDebugLog(@"Eau: Exception unregistering application menu: %@", exception);
     }
 }
 
@@ -640,6 +701,61 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
 
 }
 
+/* Push this app's application-level menu (its main menu) to Menu.app.  This
+   is the menu the global bar shows when the app is the frontmost application
+   but has no window (windowless app, or the last window closed).  Menu.app
+   deduplicates identical pushes, so calling this frequently is cheap. */
+- (void) _pushApplicationMenu
+{
+  NSMenu *mainMenu = [NSApp mainMenu];
+  if (mainMenu == nil || [mainMenu numberOfItems] == 0)
+    {
+      return;
+    }
+
+  if (![self _ensureMenuClientRegistered])
+    {
+      return;
+    }
+  if (![self _ensureMenuServerConnection])
+    {
+      return;
+    }
+
+  @try
+    {
+      NSDictionary *menuData = [self _serializeMenu:mainMenu];
+      if (!menuData)
+        {
+          return;
+        }
+      [(id<GSGNUstepMenuServer>)menuServerProxy updateMenuForApplication:menuData
+                                                              clientName:[self _menuClientName]];
+      NSDebugLog(@"Eau: Pushed application-level menu to Menu.app");
+    }
+  @catch (NSException *exception)
+    {
+      NSDebugLog(@"Eau: Exception pushing application-level menu: %@", exception);
+    }
+}
+
+/* Menu.app asks the client to re-push its application-level menu (startup
+   recovery, or after the app's last window closed). */
+- (oneway void)requestApplicationMenuUpdate
+{
+  NSDebugLog(@"Eau: requestApplicationMenuUpdate called");
+
+  if (![NSThread isMainThread])
+    {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [self requestApplicationMenuUpdate];
+      });
+      return;
+    }
+
+  [self _pushApplicationMenu];
+}
+
 #pragma mark - Menu state push
 
 // Push only the enabled/state values for the current key window's menu to
@@ -680,6 +796,28 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
   @catch (NSException *exception)
     {
       NSDebugLog(@"Eau: Exception pushing enabled states: %@", exception);
+    }
+
+  /* Also refresh the application-level menu's enabled/state values so a
+     windowless frontmost app sees fresh states in the menu bar. */
+  NSMenu *mainMenu = [NSApp mainMenu];
+  if (mainMenu && [mainMenu numberOfItems] > 0)
+    {
+      @try
+        {
+          [self _recursiveMenuUpdate:mainMenu];
+          NSDictionary *appMenuData = [self _serializeMenuWithIndexPaths:mainMenu];
+          if (appMenuData)
+            {
+              [(id<GSGNUstepMenuServer>)menuServerProxy
+                updateApplicationMenuEnabledStates:appMenuData
+                                        clientName:[self _menuClientName]];
+            }
+        }
+      @catch (NSException *exception)
+        {
+          NSDebugLog(@"Eau: Exception pushing application enabled states: %@", exception);
+        }
     }
 }
 
@@ -949,6 +1087,13 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
   if (!menu && [menuByWindowId count] > 0)
     {
       menu = [[menuByWindowId allValues] firstObject];
+    }
+
+  // Final fallback: the application's main menu (windowless app, or the
+  // menu was never associated with a window).
+  if (!menu)
+    {
+      menu = [NSApp mainMenu];
     }
 
   if (!menu)

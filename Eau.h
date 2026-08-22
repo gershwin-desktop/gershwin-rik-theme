@@ -18,6 +18,8 @@
 - (oneway void)requestMenuUpdateForWindow:(NSNumber *)windowId;
 // Sync pull: Menu.app asks for fresh enabled/state data right before a submenu opens.
 - (bycopy id)validateMenuStateForWindow:(NSNumber *)windowId;
+// Async push: Menu.app asks the client to send its application-level menu.
+- (oneway void)requestApplicationMenuUpdate;
 @end
 
 @protocol GSGNUstepMenuServer <NSObject>
@@ -30,6 +32,12 @@
 - (oneway void)updateMenuEnabledStatesForWindow:(bycopy NSNumber *)windowId
                                        menuData:(bycopy NSDictionary *)menuData
                                      clientName:(bycopy NSString *)clientName;
+// Application-level (frontmost-app) menu, keyed by clientName, not window.
+- (oneway void)updateMenuForApplication:(bycopy NSDictionary *)menuData
+                             clientName:(bycopy NSString *)clientName;
+- (oneway void)unregisterApplication:(bycopy NSString *)clientName;
+- (oneway void)updateApplicationMenuEnabledStates:(bycopy NSDictionary *)menuData
+                                        clientName:(bycopy NSString *)clientName;
 @end
 
 @interface Eau: GSTheme <GSGNUstepMenuClient>
