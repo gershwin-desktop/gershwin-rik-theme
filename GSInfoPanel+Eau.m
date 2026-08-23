@@ -18,6 +18,8 @@
 
 #import <GNUstepGUI/GSTheme.h>
 
+#import "AppearanceMetrics.h"
+
 #import <objc/runtime.h>
 
 // ---------------------------------------------------------------------------
@@ -368,6 +370,44 @@ static char kEauAppNameKey;
                                OBJC_ASSOCIATION_COPY);
     }
 
+  // ---- 4b. GitHub ribbon in the top-left corner ----
+  // Projects hosted on github.com get the classic "fork me" ribbon; it
+  // ships with the theme so showing it never needs network access.  It is
+  // a button so clicking it opens the project URL, and it shows the PNG
+  // 1:1 instead of scaled.
+  NSButton *ribbonButton = nil;
+  if (urlLabel
+      && [[urlLabel stringValue]
+            rangeOfString: @"github.com"
+                  options: NSCaseInsensitiveSearch].location != NSNotFound)
+    {
+      /* NSImage imageNamed: only resolves theme images that are listed in
+       * the theme's GSThemeImages mapping, which ours is not; load it
+       * straight from the theme bundle instead. */
+      NSString *path = [[[GSTheme theme] bundle]
+                         pathForResource: @"common_ForkMeRibbon"
+                                  ofType: @"png"
+                             inDirectory: @"ThemeImages"];
+      NSImage *ribbon = path ? [[NSImage alloc] initWithContentsOfFile: path]
+                             : nil;
+      if (ribbon)
+        {
+          ribbonButton = AUTORELEASE([_EauURLButton new]);
+          [ribbonButton setImage: ribbon];
+          /* A fresh button cell defaults to NSNoImage, which would draw
+           * neither the image nor show the ribbon at all. */
+          [ribbonButton setImagePosition: NSImageOnly];
+          [ribbonButton setTitle: @""];
+          [ribbonButton setBordered: NO];
+          [ribbonButton setFocusRingType: NSFocusRingTypeNone];
+          [ribbonButton setRefusesFirstResponder: YES];
+          [ribbonButton setFrameSize: NSMakeSize(149.0, 149.0)];
+          objc_setAssociatedObject(ribbonButton, &kEauAppNameKey,
+                                   [urlLabel stringValue],
+                                   OBJC_ASSOCIATION_COPY);
+        }
+    }
+
   // ---- 5. Remove everything and rebuild centered ----
   for (NSView *v in subs) [v removeFromSuperview];
 
@@ -548,6 +588,18 @@ static char kEauAppNameKey;
     [themeLabel setFrame: f];
     [cv addSubview: themeLabel];
   }
+
+  // GitHub ribbon, 1:1 and flush into the left edge below the in-window
+  // titlebar (Eau draws its decorations inside the content view); added
+  // last so it draws over the icon and name rather than being clipped.
+  if (ribbonButton)
+    {
+      NSRect f = [ribbonButton frame];
+      f.origin.x = 0.0;
+      f.origin.y = totalH - NSHeight(f) - METRICS_TITLEBAR_HEIGHT;
+      [ribbonButton setFrame: f];
+      [cv addSubview: ribbonButton];
+    }
 
   [result setBackgroundColor: [NSColor windowBackgroundColor]];
   [cv setNeedsDisplay: YES];
