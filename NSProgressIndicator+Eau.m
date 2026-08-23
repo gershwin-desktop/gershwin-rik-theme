@@ -19,6 +19,11 @@
 static char EauEauProgressViewKey;
 static char EauIndicatorAnimatingKey;
 static char EauFullProgressAnnouncedKey;
+static char EauProgressStartKey;
+
+/* Bars that finish quickly are routine UI feedback; only operations long
+ * enough that the user may have looked away get the completion sound. */
+#define EAU_COMPLETION_SOUND_MIN_SECONDS 5.0
 
 static BOOL EauProgressIndicatorHostsView(NSProgressIndicator *indicator)
 {
@@ -245,9 +250,24 @@ static void EauSwizzle(Class cls, SEL original, SEL swizzled)
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-/* Plays Glass on the crossing from below-full to full progress only: writing
- * 100% repeatedly must stay silent, and a bar that starts at 100% before its
- * window is up does not ding at launch. */
+- (NSTimeInterval) eauProgressStart
+{
+  NSNumber *start = objc_getAssociatedObject(self, &EauProgressStartKey);
+  return start ? [start doubleValue] : 0.0;
+}
+
+- (void) setEauProgressStart: (NSTimeInterval)time
+{
+  objc_setAssociatedObject(self, &EauProgressStartKey, @(time),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+/* Plays Glass on the crossing from below-full to full progress, but only for
+ * bars that ran at least EAU_COMPLETION_SOUND_MIN_SECONDS: the clock starts
+ * when real progress is first seen in an on-screen bar and resets when a bar
+ * returns to zero or finishes, so each run is measured on its own.  Writing
+ * 100% repeatedly stays silent, as does a bar that starts at 100% before its
+ * window is up. */
 - (void) eau_announceCompletionIfNeeded
 {
   double span = [self maxValue] - [self minValue];
@@ -259,14 +279,30 @@ static void EauSwizzle(Class cls, SEL original, SEL swizzled)
 
   if (!complete)
     {
+      if (fraction <= 0.0 || [self window] == nil)
+        {
+          if ([self eauProgressStart] != 0.0)
+            [self setEauProgressStart: 0.0];
+        }
+      else if ([self eauProgressStart] == 0.0)
+        [self setEauProgressStart: [NSDate timeIntervalSinceReferenceDate]];
+
       if ([self eauFullProgressAnnounced])
         [self setEauFullProgressAnnounced: NO];
       return;
     }
+
   if (![self eauFullProgressAnnounced])
     {
+      NSTimeInterval start = [self eauProgressStart];
+      BOOL ranLongEnough = start != 0.0
+        && [NSDate timeIntervalSinceReferenceDate] - start
+             >= EAU_COMPLETION_SOUND_MIN_SECONDS;
+
       [self setEauFullProgressAnnounced: YES];
-      EauPlaySystemSound(@"Glass");
+      [self setEauProgressStart: 0.0];
+      if (ranLongEnough)
+        EauPlaySystemSound(@"Glass");
     }
 }
 

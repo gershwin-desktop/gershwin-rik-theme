@@ -252,6 +252,9 @@
       [_animationTimer invalidate];
       _animationTimer = nil;
       _lastTickTime = 0;
+      /* The last animated frame still shows the waves; repaint once so a
+       * finished bar ends up clean instead of freezing mid-sweep. */
+      [self setNeedsDisplay: YES];
     }
 }
 
@@ -289,6 +292,12 @@
             + (_targetFraction - _valueTweenFrom) * eased;
         }
     }
+  /* The settle case is only ever observed here: without re-evaluating, the
+   * sweep timer would run forever after the fill reached its target. */
+  if (!_indeterminate
+      && _displayedFractionInitialized
+      && _targetFraction == _displayedFraction)
+    [self _updateAnimationTimer];
   [self setNeedsDisplay: YES];
 }
 
@@ -375,8 +384,11 @@
   /* 2. The travelling waves are the only thing this view adds.  They sweep
    * over the whole track and are revealed by the clip as the fill advances,
    * so growing progress never shifts them; the rounded path keeps them
-   * inside the bar. */
-  if (_animated && _animationTimer != nil)
+   * inside the bar.  A determinate bar that has reached full progress is
+   * done, so it shows a still fill with no ripple. */
+  if (_animated && _animationTimer != nil
+      && (_indeterminate || [self _progressFraction] < 1.0
+          || _animatesWhenFinished))
     {
       [NSGraphicsContext saveGraphicsState];
       [[self _trackPath] addClip];
