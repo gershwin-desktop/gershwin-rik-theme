@@ -8,6 +8,7 @@
  */
 
 #import "EauProgressView.h"
+#import "EauSound.h"
 
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
@@ -17,6 +18,7 @@
  * unbeweled bars keep the theme's regular drawing path. */
 static char EauEauProgressViewKey;
 static char EauIndicatorAnimatingKey;
+static char EauFullProgressAnnouncedKey;
 
 static BOOL EauProgressIndicatorHostsView(NSProgressIndicator *indicator)
 {
@@ -231,8 +233,47 @@ static void EauSwizzle(Class cls, SEL original, SEL swizzled)
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+- (BOOL) eauFullProgressAnnounced
+{
+  NSNumber *flag = objc_getAssociatedObject(self, &EauFullProgressAnnouncedKey);
+  return flag ? [flag boolValue] : NO;
+}
+
+- (void) setEauFullProgressAnnounced: (BOOL)flag
+{
+  objc_setAssociatedObject(self, &EauFullProgressAnnouncedKey, @(flag),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+/* Plays Glass on the crossing from below-full to full progress only: writing
+ * 100% repeatedly must stay silent, and a bar that starts at 100% before its
+ * window is up does not ding at launch. */
+- (void) eau_announceCompletionIfNeeded
+{
+  double span = [self maxValue] - [self minValue];
+  double fraction = span > 0 ? ([self doubleValue] - [self minValue]) / span : 0.0;
+  BOOL complete = [self style] == NSProgressIndicatorBarStyle
+                  && ![self isIndeterminate]
+                  && fraction >= 1.0
+                  && [self window] != nil;
+
+  if (!complete)
+    {
+      if ([self eauFullProgressAnnounced])
+        [self setEauFullProgressAnnounced: NO];
+      return;
+    }
+  if (![self eauFullProgressAnnounced])
+    {
+      [self setEauFullProgressAnnounced: YES];
+      EauPlaySystemSound(@"Glass");
+    }
+}
+
 - (void) eau_syncProgressView
 {
+  [self eau_announceCompletionIfNeeded];
+
   EauProgressView *progressView = EauEauProgressViewFor(self);
   BOOL hostsView = EauProgressIndicatorHostsView(self);
 
