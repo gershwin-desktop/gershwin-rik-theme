@@ -1,0 +1,5 @@
+# Installing the theme also installs the alerttest UI-test fixture so CI and
+# fresh systems get it next to the other helpers in CoreServices/Applications
+# (the isolated uitest session can only launch apps from standard locations).
+after-install::
+	$(MAKE) -C Test install

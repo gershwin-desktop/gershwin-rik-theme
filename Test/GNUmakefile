@@ -1,5 +1,8 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
+# Never let anything land in the LOCAL domain
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
+
 # dialogtest is a bare tool run by hand from obj/.
 TOOL_NAME = dialogtest
 dialogtest_OBJC_FILES = dialogtest.m
