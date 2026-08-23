@@ -66,6 +66,9 @@ static const float METRICS_RADIO_BUTTON_SMALL_LINE_SPACING = 18.0;
 
 // Screen size scaling factor
 static const float METRICS_SIZE_SCALE = 0.6;
+// Height cap for oversized dialogs: 60% of the width cap, so a long-text
+// dialog fills noticeably less of the screen than before
+static const float METRICS_SIZE_SCALE_HEIGHT = 0.36;
 
 // Text input fields shall be 22px high
 static const float METRICS_TEXT_INPUT_FIELD_HEIGHT = 22.0;

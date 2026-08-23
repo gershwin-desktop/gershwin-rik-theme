@@ -2,7 +2,8 @@
 # Long-text alert contract of the Eau theme, end to end.
 #
 # Launches the alerttest app (built by Test/GNUmakefile into
-# ~/Applications), which first shows a SHORT error alert and then a LONG
+# /System/Library/CoreServices/Applications), which first shows a SHORT
+# error alert and then a LONG
 # error alert (200 stderr lines).  The script proves that:
 #
 #   - the short alert shows its headline and body text,
@@ -17,7 +18,7 @@ launch application "alerttest"
 # --- short error alert ---
 wait until button "OK" timeout 30s
 assert text contains "Short Error"
-assert text contains "The disk 'System' is full."
+assert text contains "This test tests the short alert layout."
 click button "OK"
 
 # --- long error alert ---

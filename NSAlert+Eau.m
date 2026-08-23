@@ -353,7 +353,7 @@ static void eauAlertSetStopping(id panel, BOOL val)
     bounds = [NSWindow contentRectForFrameRect: bounds styleMask: mask];
     ssize = bounds.size;
     ssize.width = METRICS_SIZE_SCALE * ssize.width;
-    ssize.height = METRICS_SIZE_SCALE * ssize.height;
+    ssize.height = METRICS_SIZE_SCALE_HEIGHT * ssize.height;
     
     // Start with minimum width
     wsize.width = METRICS_WIN_MIN_WIDTH;
@@ -604,10 +604,17 @@ static void eauAlertSetStopping(id panel, BOOL val)
     // Defer stopping the modal to the next run loop iteration.
     // We use performSelector with specific modes because dispatch_async to the
     // main queue may not execute while the run loop is in NSModalPanelRunLoopMode.
+    // NSEventTrackingRunLoopMode must be included: only the scrolled variant
+    // has a live scroller, and a stop requested while its thumb is being
+    // dragged would otherwise wait until that tracking loop ends - which, in
+    // an app that hangs mid-drag, is forever, leaving the dialog uncloseable.
     [self performSelector: @selector(_stopModalDeferred)
                withObject: nil
                afterDelay: 0.0
-                  inModes: [NSArray arrayWithObjects: NSDefaultRunLoopMode, NSModalPanelRunLoopMode, nil]];
+                  inModes: [NSArray arrayWithObjects: NSDefaultRunLoopMode,
+                                                      NSModalPanelRunLoopMode,
+                                                      NSEventTrackingRunLoopMode,
+                                                      nil]];
 
     // NSLog(@"Eau: buttonAction scheduled deferred modal stop");
 }
@@ -637,6 +644,20 @@ static void eauAlertSetStopping(id panel, BOOL val)
 - (BOOL) isActivePanel
 {
     return [NSApp modalWindow] == self;
+}
+
+/* The titlebar close button must always be able to dismiss the dialog,
+ * including the scrolled long-text variant while a wedged app is stuck in
+ * scroller event tracking: ending the modal session here does not depend on
+ * the WillClose observer or on buttonAction having been reached. */
+- (BOOL) windowShouldClose: (id)sender
+{
+    @try {
+        if ([NSApp modalWindow] == self)
+            [NSApp abortModal];
+    }
+    @catch (id ex) {}
+    return YES;
 }
 
 - (NSInteger) runModal
@@ -713,7 +734,11 @@ static void eauAlertSetStopping(id panel, BOOL val)
     __block id closeObs = [[NSNotificationCenter defaultCenter]
       addObserverForName: NSWindowWillCloseNotification
       object: self queue: nil usingBlock: ^(NSNotification *note) {
-        [NSApp abortModal];
+        /* The close button must end the modal session even if the app is
+         * wedged; never let an exception here leave the dialog up. */
+        @try {
+          [NSApp abortModal];
+        } @catch (id ex) {}
       }];
     result = [NSApp runModalForWindow: self];
     [[NSNotificationCenter defaultCenter] removeObserver: closeObs];

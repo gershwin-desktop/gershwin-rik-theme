@@ -331,7 +331,10 @@ static void EAULayoutGWDialog(GWDialog *dialog)
   __block id closeObs = [[NSNotificationCenter defaultCenter]
     addObserverForName: NSWindowWillCloseNotification
     object: self queue: nil usingBlock: ^(NSNotification *note) {
-      [NSApp abortModal];
+      /* Closing must always end the modal session, even for a wedged app */
+      @try {
+        [NSApp abortModal];
+      } @catch (id ex) {}
     }];
   
   // Call the original runModal (which is now named eau_runModal due to swizzling)

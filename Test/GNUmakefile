@@ -7,10 +7,10 @@ dialogtest_TOOL_LIBS = -lgnustep-gui -lgnustep-base
 
 # alerttest is a real app so the UI-test harness can launch it with
 # `launch application "alerttest"`: the runner only starts apps found in the
-# standard .app locations.  It installs into the user's Applications folder
-# (a supported developer/test location) to keep /System and /Local clean.
+# standard .app locations.  CoreServices/Applications is where Gershwin keeps
+# system-level utility apps, so the harness finds it like any other tool.
 APP_NAME = alerttest
-alerttest_INSTALL_DIR = $(HOME)/Applications
+alerttest_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/CoreServices/Applications
 alerttest_OBJC_FILES = alerttest.m
 
 include $(GNUSTEP_MAKEFILES)/tool.make

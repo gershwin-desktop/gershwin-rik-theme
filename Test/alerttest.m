@@ -39,7 +39,8 @@ static NSInteger runErrorAlert(NSString *headline, NSString *detail)
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
     NSLog(@"ALERTTEST: showing SHORT error alert");
-    NSInteger r1 = runErrorAlert(@"Short Error", @"The disk 'System' is full.");
+    NSInteger r1 = runErrorAlert(@"Short Error",
+                                 @"This test tests the short alert layout.");
     NSLog(@"ALERTTEST: short alert returned %ld", (long)r1);
 
     NSLog(@"ALERTTEST: showing LONG error alert");
