@@ -401,6 +401,8 @@ static char kEauAppNameKey;
           [ribbonButton setBordered: NO];
           [ribbonButton setFocusRingType: NSFocusRingTypeNone];
           [ribbonButton setRefusesFirstResponder: YES];
+          [ribbonButton setTarget: self];
+          [ribbonButton setAction: @selector(_eau_openURL:)];
           [ribbonButton setFrameSize: NSMakeSize(149.0, 149.0)];
           objc_setAssociatedObject(ribbonButton, &kEauAppNameKey,
                                    [urlLabel stringValue],
