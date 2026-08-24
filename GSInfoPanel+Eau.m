@@ -3,7 +3,7 @@
 
 #import <Foundation/NSArray.h>
 #import <Foundation/NSRegularExpression.h>
-#import <Foundation/NSTask.h>
+#import <Foundation/NSURL.h>
 
 #import <AppKit/NSApplication.h>
 #import <AppKit/NSButton.h>
@@ -15,6 +15,7 @@
 #import <AppKit/NSTextField.h>
 #import <AppKit/NSView.h>
 #import <AppKit/NSWindow.h>
+#import <AppKit/NSWorkspace.h>
 
 #import <GNUstepGUI/GSTheme.h>
 
@@ -25,6 +26,155 @@
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/* Dominant hue of an image: circular mean of the pixel hues, weighted by
+ * saturation (and alpha), so near-gray pixels - which have an arbitrary
+ * hue - do not skew the result.  Returns -1 when the image has no
+ * meaningful color (all gray/transparent); outSaturation then receives the
+ * mean saturation of the colored pixels anyway (0 for a gray image), so
+ * callers can also use it as a saturation cap. */
+static CGFloat EauDominantImageHue(NSImage *image, CGFloat *outSaturation)
+{
+  NSBitmapImageRep *rep;
+  double x = 0.0, y = 0.0, satWeightSum = 0.0;
+  NSInteger px, py;
+
+  if (outSaturation != NULL)
+    *outSaturation = 0.0;
+  if (image == nil)
+    return -1.0;
+
+  /* Sample tiny: 16x16 is plenty for a dominant hue and keeps this cheap.
+   * Draw offscreen via lockFocus, which gives a real, focused graphics
+   * context in every backend (graphicsContextWithBitmapImageRep: leaves
+   * the context unfocused here, so the draw hits a NULL target context
+   * and the bitmap stays transparent). */
+  {
+    NSImage *small = [[NSImage alloc] initWithSize: NSMakeSize(16.0, 16.0)];
+    [small lockFocus];
+    [image drawInRect: NSMakeRect(0, 0, 16, 16)
+              fromRect: NSZeroRect
+             operation: NSCompositeSourceOver
+              fraction: 1.0];
+    rep = [[NSBitmapImageRep alloc] initWithFocusedViewRect:
+             NSMakeRect(0, 0, 16, 16)];
+    [small unlockFocus];
+  }
+  if (rep == nil)
+    return -1.0;
+
+  for (py = 0; py < 16; py++)
+    for (px = 0; px < 16; px++)
+      {
+        NSColor *c = [rep colorAtX: px y: py];
+        CGFloat h, s, b, a, w;
+
+        if (c == nil)
+          continue;
+        [c getHue: &h saturation: &s brightness: &b alpha: &a];
+        if (s < 0.25 || b < 0.15 || a < 0.5)
+          continue;
+        w = s * a;
+        x += cos(h * 2.0 * M_PI) * (double)w;
+        y += sin(h * 2.0 * M_PI) * (double)w;
+        satWeightSum += (double)w;
+      }
+
+  if (outSaturation != NULL && satWeightSum > 0.0)
+    {
+      /* Mean saturation over the same weighted pixels: the icon's own
+       * colorfulness, used to tone the banner down to match */
+      double mean = 0.0;
+      for (py = 0; py < 16; py++)
+        for (px = 0; px < 16; px++)
+          {
+            NSColor *c = [rep colorAtX: px y: py];
+            CGFloat h, s, b, a, w;
+
+            if (c == nil)
+              continue;
+            [c getHue: &h saturation: &s brightness: &b alpha: &a];
+            if (s < 0.25 || b < 0.15 || a < 0.5)
+              continue;
+            w = s * a;
+            mean += (double)s * w;
+          }
+      *outSaturation = (CGFloat)(mean / satWeightSum);
+    }
+
+  if (x == 0.0 && y == 0.0)
+    return -1.0;
+
+  CGFloat hue = (CGFloat) (atan2(y, x) / (2.0 * M_PI));
+  if (hue < 0.0)
+    hue += 1.0;
+  return hue;
+}
+
+/* Recolors an image: every saturated pixel's hue is rotated to targetHue
+ * (a negative targetHue desaturates completely, for gray icons), keeping
+ * brightness and alpha.  Saturation is capped at maxSaturation - it is
+ * only ever reduced, never boosted - and unsaturated pixels (the
+ * white/gray parts of the ribbon and its transparent corners) are left
+ * untouched, so the shading survives the shift. */
+static NSImage *EauImageByShiftingHue(NSImage *image, CGFloat targetHue,
+                                      CGFloat maxSaturation)
+{
+  NSSize size = [image size];
+  NSInteger w = (NSInteger) size.width;
+  NSInteger h = (NSInteger) size.height;
+  NSBitmapImageRep *rep;
+  NSImage *out;
+  NSInteger px, py;
+
+  if (image == nil || w <= 0 || h <= 0)
+    return image;
+
+  /* Draw offscreen via lockFocus so we get a real focused context
+   * (graphicsContextWithBitmapImageRep: leaves it unfocused here,
+   * producing a NULL-target-context draw and a transparent bitmap). */
+  {
+    NSImage *buf = [[NSImage alloc] initWithSize: NSMakeSize((CGFloat)w,
+                                                             (CGFloat)h)];
+    [buf lockFocus];
+    [image drawInRect: NSMakeRect(0, 0, w, h)
+              fromRect: NSZeroRect
+             operation: NSCompositeSourceOver
+              fraction: 1.0];
+    rep = [[NSBitmapImageRep alloc] initWithFocusedViewRect:
+             NSMakeRect(0, 0, w, h)];
+    [buf unlockFocus];
+  }
+  if (rep == nil)
+    return image;
+
+  for (py = 0; py < h; py++)
+    for (px = 0; px < w; px++)
+      {
+        NSColor *c = [rep colorAtX: px y: py];
+        CGFloat hue, s, b, a;
+
+        if (c == nil)
+          continue;
+        [c getHue: &hue saturation: &s brightness: &b alpha: &a];
+        if (a < 0.05 || s < 0.15)
+          continue;
+        if (targetHue >= 0.0)
+          hue = targetHue;
+        if (maxSaturation >= 0.0 && s > maxSaturation)
+          s = maxSaturation;
+        [rep setColor: [NSColor colorWithCalibratedHue: hue
+                                            saturation: s
+                                            brightness: b
+                                                 alpha: a]
+                  atX: px
+                    y: py];
+      }
+
+  out = [[NSImage alloc] initWithSize: size];
+  [out addRepresentation: rep];
+  return out;
+}
 
 // Replace "Copyright (c)", "Copyright (C)", bare "(c)"/"(C)" and
 // "(tm)"/"(TM)" (and case variations) markers with the unicode copyright
@@ -156,6 +306,8 @@ static char kEauAppNameKey;
   id result = [self eau_initWithDictionary:dictionary];
   if (!result) return nil;
 
+  @try
+    {
   // ---- 2. Collect references to every view the original created ----
   NSView *cv = [result contentView];
   NSArray *subs = [[cv subviews] copy];
@@ -372,9 +524,10 @@ static char kEauAppNameKey;
 
   // ---- 4b. GitHub ribbon in the top-left corner ----
   // Projects hosted on github.com get the classic "fork me" ribbon; it
-  // ships with the theme so showing it never needs network access.  It is
-  // a button so clicking it opens the project URL, and it shows the PNG
-  // 1:1 instead of scaled.
+  // ships with the theme so showing it never needs network access.  Its
+  // hue follows the app icon's dominant hue and its saturation never
+  // exceeds the icon's own, so the banner always matches the app it
+  // decorates; a gray icon gets a gray banner.
   NSButton *ribbonButton = nil;
   if (urlLabel
       && [[urlLabel stringValue]
@@ -390,6 +543,19 @@ static char kEauAppNameKey;
                              inDirectory: @"ThemeImages"];
       NSImage *ribbon = path ? [[NSImage alloc] initWithContentsOfFile: path]
                              : nil;
+       if (ribbon != nil && iconButton != nil)
+        {
+          @try
+            {
+              CGFloat iconSaturation = 0.0;
+              CGFloat iconHue = EauDominantImageHue([iconButton image],
+                                                    &iconSaturation);
+              ribbon = EauImageByShiftingHue(ribbon, iconHue, iconSaturation);
+            }
+          @catch (id ex)
+            {
+            }
+        }
       if (ribbon)
         {
           ribbonButton = AUTORELEASE([_EauURLButton new]);
@@ -606,6 +772,10 @@ static char kEauAppNameKey;
   [result setBackgroundColor: [NSColor windowBackgroundColor]];
   [cv setNeedsDisplay: YES];
   [result center];
+    }
+  @catch (id ex)
+    {
+    }
 
   return result;
 }
@@ -643,11 +813,11 @@ static char kEauAppNameKey;
       NSRange r = [urlStr rangeOfString: @"http"];
       if (r.location != NSNotFound)
         urlStr = [urlStr substringFromIndex: r.location];
-      // Launch the URL via the system's "open" command (non-blocking)
-      NSTask *task = AUTORELEASE([NSTask new]);
-      [task setLaunchPath: @"/usr/bin/env"];
-      [task setArguments: [NSArray arrayWithObjects: @"open", urlStr, nil]];
-      [task launch];
+      // Open the URL the GNUstep-native way, through the workspace, so it
+      // goes to the same handler as every other URL in the desktop.
+      NSURL *url = [NSURL URLWithString: urlStr];
+      if (url != nil)
+        [[NSWorkspace sharedWorkspace] openURL: url];
     }
 }
 
