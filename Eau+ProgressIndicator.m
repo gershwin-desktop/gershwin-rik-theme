@@ -127,18 +127,8 @@ static NSImage *spinningImages[MaxCount];
 
   if ([progress style] == NSProgressIndicatorSpinningStyle)
     {
-      NSRect imgBox = {{0,0}, {0,0}};
-
-      if (spinningMaxCount != 0)
-        {
-          count = count % spinningMaxCount;
-          imgBox.size = [spinningImages[count] size];
-          [spinningImages[count] drawInRect: r
-                  fromRect: imgBox
-                operation: NSCompositeSourceOver
-                  fraction: 1.0];
-        }
-     }
+      [self drawProgressIndicatorSpinner: r atCount: count];
+    }
    else
      {
        if ([progress isIndeterminate])
@@ -212,6 +202,50 @@ static NSImage *spinningImages[MaxCount];
 - (NSRect) drawProgressIndicatorBezel: (NSRect)bounds withClip: (NSRect) rect
 {
     return [self drawInnerGrayBezel: bounds withClip: rect];
+}
+
+// Classic spoke-wheel spinner: twelve identical radial batons on an
+// invisible disc.  All batons look the same, so the animation is purely
+// the wheel rotating one spoke per frame - which is what gives the era
+// look; a fading tail would read as a modern spinner instead.
+- (void) drawProgressIndicatorSpinner: (NSRect)r atCount: (int)count
+{
+  CGFloat diameter = MIN(NSWidth(r), NSHeight(r));
+  CGFloat radius, innerRadius, batonWidth;
+  NSPoint center;
+  NSBezierPath *wheel;
+  NSColor *batonColour;
+  int i;
+
+  if (diameter < 4.0)
+    return;
+
+  center = NSMakePoint(NSMidX(r), NSMidY(r));
+  radius = diameter / 2.0 - 1.0;
+  /* Batons reach from near the hub to near the rim, like wheel spokes */
+  innerRadius = radius * 0.4;
+  batonWidth = MAX(1.0, diameter / 12.0);
+
+  batonColour = [NSColor colorWithCalibratedWhite: 0.30 alpha: 1.0];
+  [batonColour setStroke];
+
+  wheel = [NSBezierPath bezierPath];
+  [wheel setLineWidth: batonWidth];
+  [wheel setLineCapStyle: NSRoundLineCapStyle];
+  for (i = 0; i < 12; i++)
+    {
+      /* One spoke step per animation frame, clockwise on screen */
+      CGFloat degrees = -((count + i) % 12) * 30.0;
+      CGFloat rad = degrees * M_PI / 180.0;
+      CGFloat s = sin(rad);
+      CGFloat c = cos(rad);
+
+      [wheel moveToPoint: NSMakePoint(center.x + c * innerRadius,
+                                      center.y + s * innerRadius)];
+      [wheel lineToPoint: NSMakePoint(center.x + c * radius,
+                                      center.y + s * radius)];
+    }
+  [wheel stroke];
 }
 
 - (void) drawProgressIndicatorBarDeterminate: (NSRect)bounds withOrientation:(BOOL) isVertical
