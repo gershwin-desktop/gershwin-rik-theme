@@ -21,6 +21,7 @@
 
 #import "AppearanceMetrics.h"
 
+#import <math.h>
 #import <objc/runtime.h>
 
 // ---------------------------------------------------------------------------
@@ -33,74 +34,123 @@
  * meaningful color (all gray/transparent); outSaturation then receives the
  * mean saturation of the colored pixels anyway (0 for a gray image), so
  * callers can also use it as a saturation cap. */
+/* RGB<->HSV helpers operating on 0..1 components, used by the ribbon
+ * recoloring so we can touch decoded pixels without an offscreen context. */
+static void EauRGBtoHSV(CGFloat r, CGFloat g, CGFloat b,
+                        CGFloat *h, CGFloat *s, CGFloat *v)
+{
+  CGFloat max = r > g ? r : g;
+  if (b > max) max = b;
+  CGFloat min = r < g ? r : g;
+  if (b < min) min = b;
+  *v = max;
+  CGFloat d = max - min;
+  if (d <= 0.00001)
+    {
+      *h = 0.0;
+      *s = 0.0;
+      return;
+    }
+  *s = (max <= 0.0) ? 0.0 : d / max;
+  if (max == r)
+    *h = (g - b) / d;
+  else if (max == g)
+    *h = 2.0 + (b - r) / d;
+  else
+    *h = 4.0 + (r - g) / d;
+  *h /= 6.0;
+  if (*h < 0.0) *h += 1.0;
+}
+
+static void EauHSVtoRGB(CGFloat h, CGFloat s, CGFloat v,
+                        CGFloat *r, CGFloat *g, CGFloat *b)
+{
+  if (s <= 0.0)
+    {
+      *r = *g = *b = v;
+      return;
+    }
+  h = fmod(h, 1.0);
+  if (h < 0.0) h += 1.0;
+  CGFloat f = h * 6.0;
+  NSInteger i = (NSInteger)f;
+  CGFloat fr = f - (CGFloat)i;
+  CGFloat p = v * (1.0 - s);
+  CGFloat q = v * (1.0 - s * fr);
+  CGFloat t = v * (1.0 - s * (1.0 - fr));
+  switch (i % 6)
+    {
+      case 0: *r = v; *g = t; *b = p; break;
+      case 1: *r = q; *g = v; *b = p; break;
+      case 2: *r = p; *g = v; *b = t; break;
+      case 3: *r = p; *g = q; *b = v; break;
+      case 4: *r = t; *g = p; *b = v; break;
+      default: *r = v; *g = p; *b = q; break;
+    }
+}
+
 static CGFloat EauDominantImageHue(NSImage *image, CGFloat *outSaturation)
 {
-  NSBitmapImageRep *rep;
-  double x = 0.0, y = 0.0, satWeightSum = 0.0;
-  NSInteger px, py;
-
   if (outSaturation != NULL)
     *outSaturation = 0.0;
   if (image == nil)
     return -1.0;
 
-  /* Sample tiny: 16x16 is plenty for a dominant hue and keeps this cheap.
-   * Draw offscreen via lockFocus, which gives a real, focused graphics
-   * context in every backend (graphicsContextWithBitmapImageRep: leaves
-   * the context unfocused here, so the draw hits a NULL target context
-   * and the bitmap stays transparent). */
-  {
-    NSImage *small = [[NSImage alloc] initWithSize: NSMakeSize(16.0, 16.0)];
-    [small lockFocus];
-    [image drawInRect: NSMakeRect(0, 0, 16, 16)
-              fromRect: NSZeroRect
-             operation: NSCompositeSourceOver
-              fraction: 1.0];
-    rep = [[NSBitmapImageRep alloc] initWithFocusedViewRect:
-             NSMakeRect(0, 0, 16, 16)];
-    [small unlockFocus];
-  }
+  /* Work directly on the decoded bitmap bytes instead of drawing the image
+   * into an offscreen context.  lockFocus triggers backend/context setup the
+   * first time it is used, which both slows this (synchronous) About-panel
+   * build and can delay the window mapping past the window manager's
+   * focus-stealing guard.  Reading the already-decoded pixels is instant. */
+  NSBitmapImageRep *rep = nil;
+  for (NSImageRep *r in [image representations])
+    {
+      if ([r isKindOfClass: [NSBitmapImageRep class]])
+        {
+          rep = (NSBitmapImageRep *)r;
+          break;
+        }
+    }
   if (rep == nil)
     return -1.0;
 
-  for (py = 0; py < 16; py++)
-    for (px = 0; px < 16; px++)
-      {
-        NSColor *c = [rep colorAtX: px y: py];
-        CGFloat h, s, b, a, w;
+  NSInteger w = [rep pixelsWide];
+  NSInteger h = [rep pixelsHigh];
+  NSInteger spp = [rep samplesPerPixel];
+  NSInteger bps = [rep bitsPerSample];
+  unsigned char *data = [rep bitmapData];
+  if (data == NULL || bps != 8 || (spp != 3 && spp != 4))
+    return -1.0;
 
-        if (c == nil)
-          continue;
-        [c getHue: &h saturation: &s brightness: &b alpha: &a];
-        if (s < 0.25 || b < 0.15 || a < 0.5)
-          continue;
-        w = s * a;
-        x += cos(h * 2.0 * M_PI) * (double)w;
-        y += sin(h * 2.0 * M_PI) * (double)w;
-        satWeightSum += (double)w;
-      }
+  BOOL alpha = [rep hasAlpha];
+  double x = 0.0, y = 0.0, satWeightSum = 0.0, satSum = 0.0;
+  NSInteger rowBytes = [rep bytesPerRow];
+
+  for (NSInteger py = 0; py < h; py++)
+    {
+      unsigned char *row = data + py * rowBytes;
+      for (NSInteger px = 0; px < w; px++)
+        {
+          unsigned char *p = row + px * spp;
+          CGFloat r = p[0] / 255.0;
+          CGFloat g = p[1] / 255.0;
+          CGFloat b = p[2] / 255.0;
+          CGFloat a = alpha ? p[3] / 255.0 : 1.0;
+          if (a < 0.5)
+            continue;
+          CGFloat hue, sat, bri;
+          EauRGBtoHSV(r, g, b, &hue, &sat, &bri);
+          if (sat < 0.25 || bri < 0.15)
+            continue;
+          double wgt = (double)sat * (double)a;
+          x += cos(hue * 2.0 * M_PI) * wgt;
+          y += sin(hue * 2.0 * M_PI) * wgt;
+          satWeightSum += wgt;
+          satSum += (double)sat * wgt;
+        }
+    }
 
   if (outSaturation != NULL && satWeightSum > 0.0)
-    {
-      /* Mean saturation over the same weighted pixels: the icon's own
-       * colorfulness, used to tone the banner down to match */
-      double mean = 0.0;
-      for (py = 0; py < 16; py++)
-        for (px = 0; px < 16; px++)
-          {
-            NSColor *c = [rep colorAtX: px y: py];
-            CGFloat h, s, b, a, w;
-
-            if (c == nil)
-              continue;
-            [c getHue: &h saturation: &s brightness: &b alpha: &a];
-            if (s < 0.25 || b < 0.15 || a < 0.5)
-              continue;
-            w = s * a;
-            mean += (double)s * w;
-          }
-      *outSaturation = (CGFloat)(mean / satWeightSum);
-    }
+    *outSaturation = (CGFloat)(satSum / satWeightSum);
 
   if (x == 0.0 && y == 0.0)
     return -1.0;
@@ -120,58 +170,63 @@ static CGFloat EauDominantImageHue(NSImage *image, CGFloat *outSaturation)
 static NSImage *EauImageByShiftingHue(NSImage *image, CGFloat targetHue,
                                       CGFloat maxSaturation)
 {
-  NSSize size = [image size];
-  NSInteger w = (NSInteger) size.width;
-  NSInteger h = (NSInteger) size.height;
-  NSBitmapImageRep *rep;
-  NSImage *out;
-  NSInteger px, py;
-
-  if (image == nil || w <= 0 || h <= 0)
+  if (image == nil)
     return image;
 
-  /* Draw offscreen via lockFocus so we get a real focused context
-   * (graphicsContextWithBitmapImageRep: leaves it unfocused here,
-   * producing a NULL-target-context draw and a transparent bitmap). */
-  {
-    NSImage *buf = [[NSImage alloc] initWithSize: NSMakeSize((CGFloat)w,
-                                                             (CGFloat)h)];
-    [buf lockFocus];
-    [image drawInRect: NSMakeRect(0, 0, w, h)
-              fromRect: NSZeroRect
-             operation: NSCompositeSourceOver
-              fraction: 1.0];
-    rep = [[NSBitmapImageRep alloc] initWithFocusedViewRect:
-             NSMakeRect(0, 0, w, h)];
-    [buf unlockFocus];
-  }
+  /* Recolor in place on the decoded bitmap bytes.  This avoids lockFocus
+   * (and the first-use backend setup it triggers), so building the About
+   * panel stays cheap and the window maps promptly on the first open. */
+  NSBitmapImageRep *rep = nil;
+  for (NSImageRep *r in [image representations])
+    {
+      if ([r isKindOfClass: [NSBitmapImageRep class]])
+        {
+          rep = (NSBitmapImageRep *)r;
+          break;
+        }
+    }
   if (rep == nil)
     return image;
 
-  for (py = 0; py < h; py++)
-    for (px = 0; px < w; px++)
-      {
-        NSColor *c = [rep colorAtX: px y: py];
-        CGFloat hue, s, b, a;
+  NSInteger w = [rep pixelsWide];
+  NSInteger h = [rep pixelsHigh];
+  NSInteger spp = [rep samplesPerPixel];
+  NSInteger bps = [rep bitsPerSample];
+  unsigned char *data = [rep bitmapData];
+  if (data == NULL || bps != 8 || (spp != 3 && spp != 4))
+    return image;
 
-        if (c == nil)
-          continue;
-        [c getHue: &hue saturation: &s brightness: &b alpha: &a];
-        if (a < 0.05 || s < 0.15)
-          continue;
-        if (targetHue >= 0.0)
-          hue = targetHue;
-        if (maxSaturation >= 0.0 && s > maxSaturation)
-          s = maxSaturation;
-        [rep setColor: [NSColor colorWithCalibratedHue: hue
-                                            saturation: s
-                                            brightness: b
-                                                 alpha: a]
-                  atX: px
-                    y: py];
-      }
+  BOOL alpha = [rep hasAlpha];
+  NSInteger rowBytes = [rep bytesPerRow];
 
-  out = [[NSImage alloc] initWithSize: size];
+  for (NSInteger py = 0; py < h; py++)
+    {
+      unsigned char *row = data + py * rowBytes;
+      for (NSInteger px = 0; px < w; px++)
+        {
+          unsigned char *p = row + px * spp;
+          CGFloat r = p[0] / 255.0;
+          CGFloat g = p[1] / 255.0;
+          CGFloat b = p[2] / 255.0;
+          CGFloat a = alpha ? p[3] / 255.0 : 1.0;
+          if (a < 0.05)
+            continue;
+          CGFloat hue, sat, bri;
+          EauRGBtoHSV(r, g, b, &hue, &sat, &bri);
+          if (sat < 0.15)
+            continue;
+          if (targetHue >= 0.0)
+            hue = targetHue;
+          if (maxSaturation >= 0.0 && sat > maxSaturation)
+            sat = maxSaturation;
+          EauHSVtoRGB(hue, sat, bri, &r, &g, &b);
+          p[0] = (unsigned char)(r * 255.0);
+          p[1] = (unsigned char)(g * 255.0);
+          p[2] = (unsigned char)(b * 255.0);
+        }
+    }
+
+  NSImage *out = [[NSImage alloc] initWithSize: [image size]];
   [out addRepresentation: rep];
   return out;
 }
@@ -233,6 +288,17 @@ _eau_symbolizeMarks(NSString *text)
 // ---------------------------------------------------------------------------
 
 @implementation GSInfoPanel (Eau)
+
+/* The About/Info panel must appear on top the very first time it is opened.
+ * NSApplication shows it with a plain -orderFront:, which asks the backend to
+ * keep the panel below the current key window and, on X11, lets the window
+ * manager's focus-stealing prevention refuse to raise a window mapped late
+ * (the first build does image work).  Force it to the front regardless of
+ * focus or timing so it is never hidden behind the app on first open. */
+- (void)orderFront:(id)sender
+{
+  [super orderFrontRegardless];
+}
 
 + (void)load
 {
