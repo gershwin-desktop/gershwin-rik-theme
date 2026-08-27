@@ -107,6 +107,23 @@ static NSButton *makeButton(NSString *title, NSRect frame)
       fx += w;
     }
 
+  /* Spinners: a large wheel (12 spokes) and a small one (24px, 6 spokes) so
+   * both spoke counts are visible side by side. */
+  NSProgressIndicator *spinBig = [[NSProgressIndicator alloc]
+    initWithFrame: NSMakeRect(20.0, 20.0, 40.0, 40.0)];
+  [spinBig setStyle: NSProgressIndicatorSpinningStyle];
+  [spinBig setIndeterminate: YES];
+  [spinBig setDisplayedWhenStopped: YES];
+  [spinBig startAnimation: nil];
+  [cv addSubview: spinBig];
+  NSProgressIndicator *spinSmall = [[NSProgressIndicator alloc]
+    initWithFrame: NSMakeRect(70.0, 30.0, 20.0, 20.0)];
+  [spinSmall setStyle: NSProgressIndicatorSpinningStyle];
+  [spinSmall setIndeterminate: YES];
+  [spinSmall setDisplayedWhenStopped: YES];
+  [spinSmall startAnimation: nil];
+  [cv addSubview: spinSmall];
+
   [win makeKeyAndOrderFront: nil];
   [win center];
 }

@@ -204,48 +204,69 @@ static NSImage *spinningImages[MaxCount];
     return [self drawInnerGrayBezel: bounds withClip: rect];
 }
 
-// Classic spoke-wheel spinner: twelve identical radial batons on an
-// invisible disc.  All batons look the same, so the animation is purely
-// the wheel rotating one spoke per frame - which is what gives the era
-// look; a fading tail would read as a modern spinner instead.
+// Twelve spokes fixed on the disc; only their luminance travels one step
+// per frame, producing a rotating highlight without any geometry rotation.
+// A single brightest spoke fades smoothly to the darkest opposite it and
+// back, so the bright spot advances counter-clockwise as the frame index
+// grows.
+#define EAU_SPINNER_SPOKES 12
+static const CGFloat EAU_SPINNER_BRIGHT = 0.50; /* 50% gray, brightest */
+static const CGFloat EAU_SPINNER_DARK   = 0.80; /* 80% gray, darkest */
+
 - (void) drawProgressIndicatorSpinner: (NSRect)r atCount: (int)count
 {
   CGFloat diameter = MIN(NSWidth(r), NSHeight(r));
-  CGFloat radius, innerRadius, batonWidth;
+  CGFloat innerRadius, outerRadius, batonWidth;
   NSPoint center;
-  NSBezierPath *wheel;
-  NSColor *batonColour;
   int i;
 
   if (diameter < 4.0)
     return;
 
+  /* Geometry is fixed in point space regardless of the control's pixel
+   * size; scale the 16pt design (inner 3, outer 6, width 2) to fit. */
   center = NSMakePoint(NSMidX(r), NSMidY(r));
-  radius = diameter / 2.0 - 1.0;
-  /* Batons reach from near the hub to near the rim, like wheel spokes */
-  innerRadius = radius * 0.4;
-  batonWidth = MAX(1.0, diameter / 12.0);
+  innerRadius = diameter * (3.0 / 16.0);
+  outerRadius = diameter * (6.0 / 16.0);
 
-  batonColour = [NSColor colorWithCalibratedWhite: 0.30 alpha: 1.0];
-  [batonColour setStroke];
+  /* Small controls (24pt and below) use fewer spokes so the wheel reads
+   * clearly at that size instead of blurring into a solid disc.  Their
+   * wider-spaced batons are drawn a little bolder to stay legible. */
+  BOOL small = (diameter <= 24.0);
+  int spokes = small ? 8 : EAU_SPINNER_SPOKES;
+  CGFloat batonFactor = small ? 2.5 : 1.5;
+  batonWidth = MAX(1.0, diameter * (batonFactor / 16.0));
+  CGFloat step = (CGFloat)(2.0 * M_PI) / (CGFloat)spokes;
 
-  wheel = [NSBezierPath bezierPath];
-  [wheel setLineWidth: batonWidth];
-  [wheel setLineCapStyle: NSRoundLineCapStyle];
-  for (i = 0; i < 12; i++)
+  for (i = 0; i < spokes; i++)
     {
-      /* One spoke step per animation frame, clockwise on screen */
-      CGFloat degrees = -((count + i) % 12) * 30.0;
-      CGFloat rad = degrees * M_PI / 180.0;
-      CGFloat s = sin(rad);
-      CGFloat c = cos(rad);
+      /* Fixed placement: spoke 0 points straight up, each next spoke steps
+       * a fixed angle clockwise around the disc and never moves. */
+      CGFloat theta = (CGFloat)i * step;
+      CGFloat s = sin(theta);
+      CGFloat c = cos(theta);
 
-      [wheel moveToPoint: NSMakePoint(center.x + c * innerRadius,
-                                      center.y + s * innerRadius)];
-      [wheel lineToPoint: NSMakePoint(center.x + c * radius,
-                                      center.y + s * radius)];
+      /* Luminance travels with the frame: the brightest phase sits at
+       * spoke (i + f), so the highlight advances counter-clockwise as f
+       * grows. */
+      int phase = (i + (count % spokes)) % spokes;
+      CGFloat t = (cos((CGFloat)phase * step) + 1.0) / 2.0;
+      CGFloat gray = EAU_SPINNER_DARK
+                     - (EAU_SPINNER_DARK - EAU_SPINNER_BRIGHT) * t;
+
+      NSColor *batonColour =
+        [NSColor colorWithCalibratedWhite: gray alpha: 1.0];
+      [batonColour setStroke];
+
+      NSBezierPath *spoke = [NSBezierPath bezierPath];
+      [spoke setLineWidth: batonWidth];
+      [spoke setLineCapStyle: NSRoundLineCapStyle];
+      [spoke moveToPoint: NSMakePoint(center.x + s * innerRadius,
+                                      center.y + c * innerRadius)];
+      [spoke lineToPoint: NSMakePoint(center.x + s * outerRadius,
+                                      center.y + c * outerRadius)];
+      [spoke stroke];
     }
-  [wheel stroke];
 }
 
 - (void) drawProgressIndicatorBarDeterminate: (NSRect)bounds withOrientation:(BOOL) isVertical
