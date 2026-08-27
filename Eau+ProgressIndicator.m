@@ -207,8 +207,7 @@ static NSImage *spinningImages[MaxCount];
 // Twelve spokes fixed on the disc; only their luminance travels one step
 // per frame, producing a rotating highlight without any geometry rotation.
 // A single brightest spoke fades smoothly to the darkest opposite it and
-// back, so the bright spot advances counter-clockwise as the frame index
-// grows.
+// back, so the bright spot advances clockwise as the frame index grows.
 #define EAU_SPINNER_SPOKES 12
 static const CGFloat EAU_SPINNER_BRIGHT = 0.50; /* 50% gray, brightest */
 static const CGFloat EAU_SPINNER_DARK   = 0.80; /* 80% gray, darkest */
@@ -246,10 +245,9 @@ static const CGFloat EAU_SPINNER_DARK   = 0.80; /* 80% gray, darkest */
       CGFloat s = sin(theta);
       CGFloat c = cos(theta);
 
-      /* Luminance travels with the frame: the brightest phase sits at
-       * spoke (i + f), so the highlight advances counter-clockwise as f
-       * grows. */
-      int phase = (i + (count % spokes)) % spokes;
+       /* Luminance travels with the frame: the brightest phase sits at
+        * spoke (i - f), so the highlight advances clockwise as f grows. */
+       int phase = (i - (count % spokes) + spokes) % spokes;
       CGFloat t = (cos((CGFloat)phase * step) + 1.0) / 2.0;
       CGFloat gray = EAU_SPINNER_DARK
                      - (EAU_SPINNER_DARK - EAU_SPINNER_BRIGHT) * t;
