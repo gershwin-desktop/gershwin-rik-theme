@@ -7,9 +7,11 @@ GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 # `launch application "alerttest"`: the runner only starts apps found in the
 # standard .app locations.  CoreServices/Applications is where Gershwin keeps
 # system-level utility apps, so the harness finds it like any other tool.
-APP_NAME = alerttest
+APP_NAME = alerttest buttontest
 alerttest_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/CoreServices/Applications
 alerttest_OBJC_FILES = alerttest.m
+buttontest_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/CoreServices/Applications
+buttontest_OBJC_FILES = buttontest.m
 
 # dialogtest is a bare manual-only tool, run by hand from obj/ and never
 # installed.  It is only built on request because gnustep-make chains
