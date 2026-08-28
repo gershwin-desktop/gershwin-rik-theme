@@ -131,6 +131,9 @@ static NSButton *makeButton(NSString *title, NSRect frame)
   [win makeKeyAndOrderFront: nil];
   [win makeFirstResponder: firstA];
   [win center];
+  NSRect wfr = [win frame];
+  NSString *fstr = [NSString stringWithFormat:@"%d %d %d %d\n", (int)NSMinX(wfr), (int)NSMaxY(wfr), (int)NSWidth(wfr), (int)NSHeight(wfr)];
+  [fstr writeToFile:@"/tmp/btg.frame" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
 }
 @end
 
