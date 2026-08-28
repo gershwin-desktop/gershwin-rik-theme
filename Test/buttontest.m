@@ -53,9 +53,13 @@ static NSButton *makeButton(NSString *title, NSRect frame)
   CGFloat ax = 20.0;
   CGFloat ay = 320.0;
   NSArray *atitles = @[@"One", @"Two", @"Three", @"Four", @"Five"];
+  NSButton *firstA = nil;
   for (NSString *t in atitles)
     {
-      [cv addSubview: makeButton(t, NSMakeRect(ax, ay, w, h))];
+      NSButton *b = makeButton(t, NSMakeRect(ax, ay, w, h));
+      if (firstA == nil)
+        firstA = b;
+      [cv addSubview: b];
       ax += w;
     }
 
@@ -125,6 +129,7 @@ static NSButton *makeButton(NSString *title, NSRect frame)
   [cv addSubview: spinSmall];
 
   [win makeKeyAndOrderFront: nil];
+  [win makeFirstResponder: firstA];
   [win center];
 }
 @end

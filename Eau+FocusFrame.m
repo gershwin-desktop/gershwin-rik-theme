@@ -1,4 +1,5 @@
 #import "Eau.h"
+#import "Eau+Drawings.h"
 #import "Eau+Stepper.h"
 
 @implementation Eau(EauFocusFrame)
@@ -44,9 +45,39 @@
 
         NSButton *focusButton = (NSButton*)view;
         int bezel_style = [focusButton bezelStyle];
-        path = [self buttonBezierPathWithRect: NSInsetRect([view bounds], 1, 1)
-                                     andStyle: bezel_style
-                                       inCell: [focusButton cell]];
+        NSRect b = [view bounds];
+        NSRect fr = NSInsetRect(b, 1, 1);
+        switch (bezel_style)
+          {
+            /* Square bezel styles draw a plain rectangle, so the ring must
+             * too. */
+            case NSTexturedSquareBezelStyle:
+            case NSSmallSquareBezelStyle:
+            case NSRegularSquareBezelStyle:
+            case NSShadowlessSquareBezelStyle:
+            case NSThickSquareBezelStyle:
+            case NSThickerSquareBezelStyle:
+              path = [NSBezierPath bezierPathWithRect: fr];
+              break;
+            default:
+              {
+                /* Match the button's final shape exactly, including any
+                 * corners squared by adjacency in a button bar, so the focus
+                 * ring hugs the same outline the bezel draws. */
+                CGFloat r = [self _eau_radiusForFrame: b];
+                CGFloat leftR = r, rightR = r;
+                [self _eau_adjacencyRadiiForView: view
+                                      baseRadius: r
+                                       leftRadius: &leftR
+                                      rightRadius: &rightR];
+                path = [self _eau_roundedPath: fr
+                                       topLeft: leftR
+                                      topRight: rightR
+                                    bottomLeft: leftR
+                                   bottomRight: rightR];
+              }
+              break;
+          }
           }
     }
   else if([view class] == [NSStepper class])
