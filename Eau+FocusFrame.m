@@ -1,56 +1,77 @@
 #import "Eau.h"
 #import "Eau+Drawings.h"
 #import "Eau+Stepper.h"
+#import <objc/runtime.h>
 
-@implementation Eau(EauFocusFrame)
+/* A transparent view pinned on top of the window's content view.  Drawing the
+ * focus ring here (instead of inside the focused control) means it is never
+ * clipped to the control's cell-frame bounds, it sits on top of neighbouring
+ * widgets, and it can extend right up to - and just outside - the widget's
+ * edge with no gap. */
+@interface EauFocusOverlay : NSView
+@property (nonatomic, retain) NSBezierPath *ringPath;
+@property (nonatomic, assign) NSView *focusedView;
+@end
+
+@implementation EauFocusOverlay
+- (BOOL) isOpaque
+{
+  return NO;
+}
+- (void) drawRect: (NSRect) rect
+{
+  if (_ringPath == nil)
+    return;
+  /* The ring is only valid while its control is still the first responder;
+   * drop it the moment focus moves elsewhere. */
+  if ([[self window] firstResponder] != _focusedView)
+    {
+      _ringPath = nil;
+      return;
+    }
+  NSColor *src = [NSColor selectedControlColor];
+  NSColor *rgb = [src colorUsingColorSpaceName: NSCalibratedRGBColorSpace];
+  CGFloat r = (rgb != nil) ? [rgb redComponent] : 0.28;
+  CGFloat g = (rgb != nil) ? [rgb greenComponent] : 0.58;
+  CGFloat b = (rgb != nil) ? [rgb blueComponent] : 0.90;
+  [[NSColor colorWithCalibratedRed: r green: g blue: b alpha: 1.0] setStroke];
+  [_ringPath setLineWidth: 2];
+  [_ringPath stroke];
+}
+@end
+
+static const void *EauFocusOverlayKey = &EauFocusOverlayKey;
+
+static EauFocusOverlay *eauOverlayForWindow(NSWindow *win)
+{
+  EauFocusOverlay *ov = objc_getAssociatedObject(win, EauFocusOverlayKey);
+  if (ov == nil)
+    {
+      ov = [[EauFocusOverlay alloc] initWithFrame: NSZeroRect];
+      [ov setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
+      objc_setAssociatedObject(win, EauFocusOverlayKey, ov,
+                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+  return ov;
+}
+
+@implementation Eau (EauFocusFrame)
 
 - (void) drawFocusFrame: (NSRect) frame view: (NSView*) view
 {
-  //NSLog(@"%@", [view className]);
   NSBezierPath * path;
+  /* The ring is traced just OUTSIDE the widget (m = 2), so it is clearly on
+   * top of neighbouring widgets and flush against the edge with no gap. */
+  CGFloat m = 2.0;
+  NSRect base = [view bounds];
+
   if([view class] == [NSButton class])
     {
-        NSRect r = [view bounds];
-        NSImage * img = [(NSButton*) view image];
-        if(img != nil && ![(NSButton*)view isBordered])
-          {
-            NSSize s = [img size];
-            NSCellImagePosition cip = [(NSButton*) view imagePosition];
-            NSRect imageRect;
-            switch(cip)
-            {
-              case NSImageOnly:
-                imageRect = r;
-                break;
-
-              case NSImageLeft:
-                imageRect.origin = r.origin;
-                imageRect.size.width = s.width;
-                imageRect.size.height = r.size.height;
-                break;
-
-              case NSImageRight:
-                imageRect.origin.x = NSMaxX(r) - s.width;
-                imageRect.origin.y = r.origin.y;
-                imageRect.size.width = s.width;
-                imageRect.size.height = r.size.height;
-                break;
-            }
-            path = [NSBezierPath bezierPathWithRoundedRect: NSInsetRect(imageRect,2,1)
-                                                  xRadius: 3
-                                                  yRadius: 3];
-          }
-        else
-          {
-
         NSButton *focusButton = (NSButton*)view;
         int bezel_style = [focusButton bezelStyle];
-        NSRect b = [view bounds];
-        NSRect fr = NSInsetRect(b, 1, 1);
+        NSRect fr = NSInsetRect(base, -m, -m);
         switch (bezel_style)
           {
-            /* Square bezel styles draw a plain rectangle, so the ring must
-             * too. */
             case NSTexturedSquareBezelStyle:
             case NSSmallSquareBezelStyle:
             case NSRegularSquareBezelStyle:
@@ -61,15 +82,12 @@
               break;
             default:
               {
-                /* Match the button's final shape exactly, including any
-                 * corners squared by adjacency in a button bar, so the focus
-                 * ring hugs the same outline the bezel draws. */
-                CGFloat r = [self _eau_radiusForFrame: b];
+                CGFloat r = [self _eau_radiusForFrame: base];
                 CGFloat leftR = r, rightR = r;
                 [self _eau_adjacencyRadiiForView: view
-                                      baseRadius: r
-                                       leftRadius: &leftR
-                                      rightRadius: &rightR];
+                                          baseRadius: r
+                                           leftRadius: &leftR
+                                          rightRadius: &rightR];
                 path = [self _eau_roundedPath: fr
                                        topLeft: leftR
                                       topRight: rightR
@@ -78,61 +96,65 @@
               }
               break;
           }
-          }
     }
   else if([view class] == [NSStepper class])
     {
-      path = [self stepperBezierPathWithFrame: frame];
+      path = [self stepperBezierPathWithFrame: NSInsetRect(base, -m, -m)];
     }
   else if([view class] == [NSPopUpButton class])
     {
-      frame.size.height += 1;
-      frame.size.width += 1;
-      path = [NSBezierPath bezierPathWithRoundedRect: frame
-                                                  xRadius: 3
-                                                  yRadius: 3];
+      path = [NSBezierPath bezierPathWithRoundedRect: NSInsetRect(base, -m, -m)
+                                            xRadius: 3
+                                            yRadius: 3];
     }
   else if([view class] == [NSMatrix class])
     {
-      // TS: unused
-      // NSSize size = [(NSMatrix*) view cellSize];
       NSCell* selectedCell = [(NSMatrix*) view selectedCell];
       NSUInteger row = [(NSMatrix*)view selectedRow];
       NSUInteger col = [(NSMatrix*)view selectedColumn];
-
       NSRect r = [(NSMatrix*) view cellFrameAtRow:row column: col];
-
       if([selectedCell class] == [NSButtonCell class])
-      {
-        NSImage * img = [selectedCell image];
-        if(img != nil && ![selectedCell isBordered])
         {
-          NSSize s = [img size];
-          s.width -= 2;
-          s.height -= 2;
-          path = [NSBezierPath bezierPathWithRoundedRect: NSMakeRect(r.origin.x+1, r.origin.y+2, s.width, s.height)
-                                                 xRadius: s.width/2.0
-                                                 yRadius: s.height/2.0];
+          path = [NSBezierPath bezierPathWithRoundedRect: NSInsetRect(r, -m, -m)
+                                                xRadius: 3
+                                                yRadius: 3];
         }else{
-          path = [NSBezierPath bezierPathWithRoundedRect: NSInsetRect(r, 1, 1)
-                                                 xRadius: 3
-                                                 yRadius: 3];
+          return;
         }
-      }else{
-        return;
-      }
     }
   else
     {
-      path = [NSBezierPath bezierPathWithRect: frame];
+      path = [NSBezierPath bezierPathWithRect: NSInsetRect(base, -m, -m)];
     }
-  NSColor * c = [NSColor selectedControlColor];
-  [c setStroke];
-  [path setLineWidth: 2];
-  [path stroke];
+
+  /* Hand the ring to the per-window overlay, expressed in the content view's
+   * coordinate space so it is drawn last (on top of everything), never clipped
+   * by the control's cell-frame bounds, and extends just outside the widget. */
+  NSWindow *win = [view window];
+  NSView *cv = [win contentView];
+  if (cv == nil)
+    return;
+  NSRect vr = [view convertRect: [view bounds] toView: cv];
+  NSBezierPath *ring = [path copy];
+  NSAffineTransform *t = [NSAffineTransform transform];
+  [t translateXBy: vr.origin.x yBy: vr.origin.y];
+  [ring transformUsingAffineTransform: t];
+
+  EauFocusOverlay *ov = eauOverlayForWindow(win);
+  [ov setRingPath: ring];
+  [ov setFocusedView: view];
+  [ov setFrame: [cv bounds]];
+  /* Attach synchronously, guarded to once, to the live content view so the
+   * overlay is actually in the window's view tree (a deferred add left it
+   * detached, with [self window] nil, so it never composited). */
+  if ([ov superview] != cv)
+    {
+      [cv addSubview: ov];
+    }
+  [ov setNeedsDisplay: YES];
 }
 
-- (NSSize) sizeForBorderType: (NSBorderType)aType
+- (NSSize) sizeForBorderType: (NSBorderType) aType
 {
       switch (aType)
         {
