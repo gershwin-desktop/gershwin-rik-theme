@@ -306,7 +306,9 @@ static EauFocusOverlay *eauOverlayForWindow(NSWindow *win)
         {
           unichar k = [chars characterAtIndex: 0];
           if (k == NSTabCharacter || k == NSBackTabCharacter)
-            eauKeyboardFocusVisible = YES;
+            {
+              eauKeyboardFocusVisible = YES;
+            }
         }
     }
   [self eau_sendEvent: event];
