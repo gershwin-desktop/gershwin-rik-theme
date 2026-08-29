@@ -17,6 +17,16 @@
 {
   return NO;
 }
+/* The overlay is pinned on top of the whole content view so the ring can sit
+ * outside the focused widget and over its neighbours.  A plain NSView accepts
+ * hit-testing, so without this every mouse event would land on the overlay and
+ * never reach the button beneath it - the dialog's OK button would do nothing.
+ * Returning nil makes the overlay fully transparent to the event system so
+ * clicks and tracking fall through to the real controls. */
+- (NSView *) hitTest: (NSPoint)aPoint
+{
+  return nil;
+}
 - (void) drawRect: (NSRect) rect
 {
   if (_ringPath == nil)
