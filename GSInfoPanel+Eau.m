@@ -125,10 +125,16 @@ static CGFloat EauDominantImageHue(NSImage *image, CGFloat *outSaturation)
   double x = 0.0, y = 0.0, satWeightSum = 0.0, satSum = 0.0;
   NSInteger rowBytes = [rep bytesPerRow];
 
-  for (NSInteger py = 0; py < h; py++)
+  /* Sample at a fixed cost regardless of icon size: a 1024px icon would
+   * otherwise mean a million-pixel loop on the (synchronous) first About
+   * build.  Step so we inspect at most ~64x64 representative pixels. */
+  NSInteger step = (NSInteger)ceil((double)MAX(w, h) / 64.0);
+  if (step < 1) step = 1;
+
+  for (NSInteger py = 0; py < h; py += step)
     {
       unsigned char *row = data + py * rowBytes;
-      for (NSInteger px = 0; px < w; px++)
+      for (NSInteger px = 0; px < w; px += step)
         {
           unsigned char *p = row + px * spp;
           CGFloat r = p[0] / 255.0;
@@ -290,14 +296,15 @@ _eau_symbolizeMarks(NSString *text)
 @implementation GSInfoPanel (Eau)
 
 /* The About/Info panel must appear on top the very first time it is opened.
- * NSApplication shows it with a plain -orderFront:, which asks the backend to
- * keep the panel below the current key window and, on X11, lets the window
- * manager's focus-stealing prevention refuse to raise a window mapped late
- * (the first build does image work).  Force it to the front regardless of
- * focus or timing so it is never hidden behind the app on first open. */
+ * NSApplication shows it with a plain -orderFront:, which on X11 lets the
+ * window manager's focus-stealing prevention refuse to raise a window that is
+ * mapped late (the first build does synchronous work) and leaves it below the
+ * key window.  Activate the app and make the panel key+front so the window
+ * manager raises it above the app on every open, first try included. */
 - (void)orderFront:(id)sender
 {
-  [super orderFrontRegardless];
+  [NSApp activateIgnoringOtherApps: YES];
+  [self makeKeyAndOrderFront: sender];
 }
 
 + (void)load
@@ -841,6 +848,8 @@ static char kEauAppNameKey;
     }
   @catch (id ex)
     {
+      /* Leave the panel as the original built it; never return a gutted
+       * (subview-stripped) window if our restyle throws. */
     }
 
   return result;

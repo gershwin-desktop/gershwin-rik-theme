@@ -141,6 +141,24 @@ static EauFocusOverlay *eauOverlayForWindow(NSWindow *win)
   [ring transformUsingAffineTransform: t];
 
   EauFocusOverlay *ov = eauOverlayForWindow(win);
+  /* Only repaint the overlay where the ring actually lives.  Marking the whole
+   * overlay dirty (the old setNeedsDisplay: YES) forced a full-window composite
+   * on every call - and drawFocusFrame runs on every redraw of the focused
+   * control, including each frame of the pulsing default button - which starved
+   * the run loop and made dialogs feel sluggish.  Confine the dirty rect to the
+   * old and new ring bounds so the rest of the window is never touched. */
+  NSRect oldBounds = NSZeroRect;
+  if ([ov ringPath] != nil)
+    oldBounds = [[ov ringPath] bounds];
+  NSRect newBounds = [ring bounds];
+  /* Skip the rest when the ring is unchanged: the pulsing default button
+   * redraws every animation frame, but its focus ring geometry is identical, so
+   * there is nothing new to paint.  This keeps the per-frame cost near zero. */
+  if ([ov ringPath] != nil && [ov focusedView] == view
+      && NSEqualRects(oldBounds, newBounds))
+    {
+      return;
+    }
   [ov setRingPath: ring];
   [ov setFocusedView: view];
   [ov setFrame: [cv bounds]];
@@ -151,7 +169,11 @@ static EauFocusOverlay *eauOverlayForWindow(NSWindow *win)
     {
       [cv addSubview: ov];
     }
-  [ov setNeedsDisplay: YES];
+  /* Expand by the stroke width (4) plus the 2px margin so the outline is fully
+   * covered, then dirty both old and new ring rects to clear the previous trace. */
+  NSRect dirty = NSUnionRect(oldBounds, newBounds);
+  dirty = NSInsetRect(dirty, -6, -6);
+  [ov setNeedsDisplayInRect: dirty];
 }
 
 - (NSSize) sizeForBorderType: (NSBorderType) aType
