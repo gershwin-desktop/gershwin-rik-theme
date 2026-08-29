@@ -31,40 +31,65 @@ static void (*s_orig_keyDown)(id, SEL, NSEvent *) = NULL;
 
 static void s_eau_textView_keyDown(id self, SEL _cmd, NSEvent *event)
 {
-  if ([event type] == NSKeyDown
-      && ([event modifierFlags] & NSCommandKeyMask)
-      && [[self window] firstResponder] == self)
+  if ([event type] == NSKeyDown)
     {
-      NSString *key = [event charactersIgnoringModifiers];
-      if ([key length] == 1)
+      /* A field editor is the NSTextView used to edit a single-line control
+       * (NSTextField, NSSearchField, ...).  In such controls Tab must move
+       * keyboard focus to the next/previous key view, exactly like a button,
+       * not insert a literal tab character into the text.  Multi-line
+       * NSTextViews are never field editors, so they keep their normal Tab
+       * (insert tab) behaviour.  Advancing the key view also ends editing. */
+      NSString *nav = [event charactersIgnoringModifiers];
+      if ([nav length] == 1)
         {
-          unichar c = [key characterAtIndex: 0];
-          switch (c)
+          unichar k = [nav characterAtIndex: 0];
+          if ((k == NSTabCharacter || k == NSBackTabCharacter) && [self isFieldEditor])
             {
-              case 'a':
-                [self selectAll: self];
-                return;
-              case 'c':
-                [self copy: self];
-                return;
-              case 'v':
-                [self paste: self];
-                return;
-              case 'x':
-                [self cut: self];
-                return;
-              case 'z':
-                if ([event modifierFlags] & NSShiftKeyMask)
-                  {
-                    [[self undoManager] redo];
-                  }
-                else
-                  {
-                    [[self undoManager] undo];
-                  }
-                return;
-              default:
-                break;
+              NSWindow *win = [self window];
+              if (win != nil)
+                {
+                  if (k == NSTabCharacter)
+                    [win selectNextKeyView: self];
+                  else
+                    [win selectPreviousKeyView: self];
+                  return;
+                }
+            }
+        }
+      if (([event modifierFlags] & NSCommandKeyMask)
+          && [[self window] firstResponder] == self)
+        {
+          NSString *key = [event charactersIgnoringModifiers];
+          if ([key length] == 1)
+            {
+              unichar c = [key characterAtIndex: 0];
+              switch (c)
+                {
+                  case 'a':
+                    [self selectAll: self];
+                    return;
+                  case 'c':
+                    [self copy: self];
+                    return;
+                  case 'v':
+                    [self paste: self];
+                    return;
+                  case 'x':
+                    [self cut: self];
+                    return;
+                  case 'z':
+                    if ([event modifierFlags] & NSShiftKeyMask)
+                      {
+                        [[self undoManager] redo];
+                      }
+                    else
+                      {
+                        [[self undoManager] undo];
+                      }
+                    return;
+                  default:
+                    break;
+                }
             }
         }
     }
