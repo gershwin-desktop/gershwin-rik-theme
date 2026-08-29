@@ -1,7 +1,15 @@
 #import "Eau.h"
 #import "Eau+Drawings.h"
 #import "Eau+Stepper.h"
+#import <AppKit/AppKit.h>
 #import <objc/runtime.h>
+
+/* Whether the focus ring is currently allowed to show.  macOS only reveals
+ * keyboard focus rings after the user starts tabbing (full keyboard access);
+ * on window open, and after any mouse interaction, the ring stays hidden even
+ * though a control is the first responder.  We mirror that: the ring is drawn
+ * only while keyboard navigation is active. */
+static BOOL eauKeyboardFocusVisible = NO;
 
 /* A transparent view pinned on top of the window's content view.  Drawing the
  * focus ring here (instead of inside the focused control) means it is never
@@ -56,6 +64,23 @@
 
 static const void *EauFocusOverlayKey = &EauFocusOverlayKey;
 
+/* Clear any ring already painted for a window (used when navigation leaves
+ * keyboard mode) and drop the overlay's cached path so it stops compositing.
+ * Defined after EauFocusOverlay so the class and its associated-object key are
+ * in scope. */
+static void eauHideFocusRing(NSWindow *win)
+{
+  if (win == nil)
+    return;
+  EauFocusOverlay *ov = objc_getAssociatedObject(win, EauFocusOverlayKey);
+  if (ov != nil && [ov ringPath] != nil)
+    {
+      NSRect old = [[ov ringPath] bounds];
+      [ov setRingPath: nil];
+      [ov setNeedsDisplayInRect: NSInsetRect(old, -6, -6)];
+    }
+}
+
 static EauFocusOverlay *eauOverlayForWindow(NSWindow *win)
 {
   EauFocusOverlay *ov = objc_getAssociatedObject(win, EauFocusOverlayKey);
@@ -73,6 +98,15 @@ static EauFocusOverlay *eauOverlayForWindow(NSWindow *win)
 
 - (void) drawFocusFrame: (NSRect) frame view: (NSView*) view
 {
+  /* Keyboard navigation not active yet (window just opened, or the user is
+   * using the mouse): do not paint a focus ring, so nothing is outlined until
+   * Tab is pressed.  Also clear any ring left over from a previous keyboard
+   * session so it does not linger after the user clicks away. */
+  if (!eauKeyboardFocusVisible)
+    {
+      eauHideFocusRing([view window]);
+      return;
+    }
   NSBezierPath * path;
   /* Trace the ring 2px outside the control's outline ([view bounds] / selected
    * cell frame).  drawFocusFrame is handed the cell interior (a few px inset),
@@ -199,6 +233,83 @@ static EauFocusOverlay *eauOverlayForWindow(NSWindow *win)
       default:
         return NSZeroSize;
     }
+}
+
+@end
+
+/* Drive the keyboard-focus-visibility flag from real navigation events.
+ * Tab (and Shift-Tab) is the only thing that reveals the ring; any mouse
+ * interaction hides it again, matching macOS full-keyboard-access behavior. */
+@interface NSWindow (EauFocusVisibility)
+- (void) eau_selectNextKeyView: (id)sender;
+- (void) eau_selectPreviousKeyView: (id)sender;
+- (void) eau_sendEvent: (NSEvent *)event;
+@end
+
+@implementation NSWindow (EauFocusVisibility)
+
++ (void) load
+{
+  Class cls = [NSWindow class];
+  /* Tab moves focus forward/back through the key-view loop. */
+  if (class_respondsToSelector(cls, @selector(selectNextKeyView:)))
+    {
+      Method orig = class_getInstanceMethod(cls, @selector(selectNextKeyView:));
+      Method swiz = class_getInstanceMethod(cls, @selector(eau_selectNextKeyView:));
+      method_exchangeImplementations(orig, swiz);
+    }
+  if (class_respondsToSelector(cls, @selector(selectPreviousKeyView:)))
+    {
+      Method orig = class_getInstanceMethod(cls, @selector(selectPreviousKeyView:));
+      Method swiz = class_getInstanceMethod(cls, @selector(eau_selectPreviousKeyView:));
+      method_exchangeImplementations(orig, swiz);
+    }
+  Method sm = class_getInstanceMethod(cls, @selector(sendEvent:));
+  Method sSwiz = class_getInstanceMethod(cls, @selector(eau_sendEvent:));
+  if (sm != NULL && sSwiz != NULL)
+    method_exchangeImplementations(sm, sSwiz);
+}
+
+- (void) eau_selectNextKeyView: (id)sender
+{
+  eauKeyboardFocusVisible = YES;
+  [self eau_selectNextKeyView: sender];
+}
+
+- (void) eau_selectPreviousKeyView: (id)sender
+{
+  eauKeyboardFocusVisible = YES;
+  [self eau_selectPreviousKeyView: sender];
+}
+
+- (void) eau_sendEvent: (NSEvent *)event
+{
+  NSEventType t = [event type];
+  if (t == NSLeftMouseDown || t == NSRightMouseDown
+      || t == NSOtherMouseDown || t == NSScrollWheel)
+    {
+      /* A mouse click drops keyboard navigation: hide the ring and clear it. */
+      if (eauKeyboardFocusVisible)
+        {
+          eauKeyboardFocusVisible = NO;
+          eauHideFocusRing(self);
+        }
+    }
+  else if (t == NSKeyDown)
+    {
+      /* Tab (and Shift-Tab) is the only thing that reveals the ring,
+       * regardless of how GNUstep routes the key (performKeyEquivalent or
+       * selectNextKeyView:).  Set the flag before the event is dispatched so
+       * the newly focused control paints its ring. */
+      NSString *chars = [event charactersIgnoringModifiers];
+      if ([chars length] > 0)
+        {
+          unichar k = [chars characterAtIndex: 0];
+          if (k == NSTabCharacter || k == NSBackTabCharacter)
+            eauKeyboardFocusVisible = YES;
+        }
+    }
+  [self eau_sendEvent: event];
 }
 
 @end
