@@ -125,60 +125,6 @@ static void EAUWindowLog(NSString *event, NSWindow *window)
     }
 }
 
-// Forward declaration so static helper functions below can call
-// NSWindow(EauTheme) methods before their formal @implementation.
-@interface NSWindow (EAUAutoPlacement)
-- (void) EAUcenter;
-@end
-
-/* Returns YES for windows that should be auto-positioned as dialogs:
- * classic dialog types (NSPanel, modal-level, utility) plus small
- * titled non-resizable windows (the pattern used by GWDialog,
- * RunExternalController, and similar custom dialogs). */
-static BOOL EAUShouldPositionDialog(NSWindow *window)
-{
-  if (window == nil) return NO;
-  if (EAUIsDialogWindow(window)) return YES;
-
-  NSUInteger mask = [window styleMask];
-  if ((mask & NSTitledWindowMask) && !(mask & NSResizableWindowMask))
-    {
-      NSRect wf = [window frame];
-      if (wf.size.width < 600 && wf.size.height < 400)
-        {
-          return YES;
-        }
-    }
-  return NO;
-}
-
-/* Position a dialog window using the golden ratio (vertical placement
- * ~38% from the top), centered horizontally.  Called from the orderFront: /
- * orderFrontRegardless / makeKeyAndOrderFront: swizzles so that
- * non-positioned dialog-style windows appear at a consistent, visually
- * pleasing location.
- *
- * Only positions windows that are not yet visible AND whose frame is at
- * the default (0,0) origin — meaning the creating code did not explicitly
- * set a position.  Windows that were positioned by their creator (e.g.,
- * EauAlertPanel's -init which centers itself, or any code that calls
- * -setFrame: before ordering in) are left untouched. */
-static void EAUPlaceDialogWindow(NSWindow *window)
-{
-  if (window == nil || [window isVisible])
-    {
-      return;
-    }
-  /* If the window's origin is not at (0,0), the creating code already
-   * positioned it explicitly — leave it alone. */
-  NSRect wf = [window frame];
-  if (wf.origin.x != 0 || wf.origin.y != 0)
-    {
-      return;
-    }
-  [window EAUcenter];
-}
-
 @implementation NSWindow (EauLogging)
 
 + (void) load
@@ -231,10 +177,6 @@ static void EAUPlaceDialogWindow(NSWindow *window)
 
 - (void) eau_orderFront: (id)sender
 {
-  if (EAUShouldPositionDialog(self))
-    {
-      EAUPlaceDialogWindow(self);
-    }
   EAUWindowLog(@"orderFront", self);
   [EauGrowBoxView addToWindow:self];
   [self eau_orderFront: sender];
@@ -242,10 +184,6 @@ static void EAUPlaceDialogWindow(NSWindow *window)
 
 - (void) eau_orderFrontRegardless
 {
-  if (EAUShouldPositionDialog(self))
-    {
-      EAUPlaceDialogWindow(self);
-    }
   EAUWindowLog(@"orderFrontRegardless", self);
   [EauGrowBoxView addToWindow:self];
   [self eau_orderFrontRegardless];
@@ -253,10 +191,6 @@ static void EAUPlaceDialogWindow(NSWindow *window)
 
 - (void) eau_makeKeyAndOrderFront: (id)sender
 {
-  if (EAUShouldPositionDialog(self))
-    {
-      EAUPlaceDialogWindow(self);
-    }
   EAUWindowLog(@"makeKeyAndOrderFront", self);
   [EauGrowBoxView addToWindow:self];
   [self eau_makeKeyAndOrderFront: sender];
@@ -663,7 +597,6 @@ static void EAUPlaceDialogWindow(NSWindow *window)
 // TS: forward dec
 @interface NSWindow(EauTheme)
 - (void) EAUsetDefaultButtonCell: (NSButtonCell *)aCell;
-- (void) EAUcenter;
 @end
 
 @implementation Eau(NSWindow)
@@ -764,13 +697,6 @@ static void EAUPlaceDialogWindow(NSWindow *window)
   NSDebugLog(@"_overrideNSWindowMethod_setDefaultButtonCell:");
   NSWindow *xself = (NSWindow*)self;
   [xself EAUsetDefaultButtonCell:aCell];
-}
-
-// Override the center method to position windows using golden ratio
-- (void) _overrideNSWindowMethod_center {
-  NSDebugLog(@"_overrideNSWindowMethod_center: Positioning window with golden ratio");
-  NSWindow *xself = (NSWindow*)self;
-  [xself EAUcenter];
 }
 
 @end
@@ -895,62 +821,6 @@ static const void *kEAUDefaultButtonControllerKey = &kEAUDefaultButtonController
 
 - (void) animateDefaultButton: (id)sender
 {
-}
-
-// Golden ratio positioning method
-- (void) EAUcenter
-{
-  NSDebugLog(@"NSWindow+Eau: EAUcenter called - applying golden ratio positioning");
-  
-  NSScreen *screen = [self screen];
-  if (!screen) {
-    screen = [NSScreen mainScreen];
-  }
-  
-  if (!screen) {
-    NSDebugLog(@"NSWindow+Eau: No screen available, using standard center");
-    [self center];
-    return;
-  }
-  
-  NSRect screenFrame = [screen visibleFrame];
-  NSRect windowFrame = [self frame];
-  
-  NSDebugLog(@"NSWindow+Eau: Screen frame: %@", NSStringFromRect(screenFrame));
-  NSDebugLog(@"NSWindow+Eau: Window frame: %@", NSStringFromRect(windowFrame));
-  
-  // Golden ratio ≈ 1.618, inverse ≈ 0.618
-  // Position the window vertically at the golden ratio point
-  const CGFloat goldenRatio = 1.618033988749;
-  const CGFloat goldenRatioInverse = 1.0 / goldenRatio; // ≈ 0.618
-  
-  // Calculate horizontal center (keep this centered)
-  CGFloat x = screenFrame.origin.x + (screenFrame.size.width - windowFrame.size.width) / 2.0;
-  
-  // Calculate vertical position using golden ratio
-  // Position the window so that the ratio of space above to space below follows golden ratio
-  // This places the window slightly above center, which is more visually pleasing
-  CGFloat availableHeight = screenFrame.size.height - windowFrame.size.height;
-  CGFloat y = screenFrame.origin.y + availableHeight * goldenRatioInverse;
-  
-  // Ensure the window stays within screen bounds
-  if (x < screenFrame.origin.x) {
-    x = screenFrame.origin.x;
-  } else if (x + windowFrame.size.width > screenFrame.origin.x + screenFrame.size.width) {
-    x = screenFrame.origin.x + screenFrame.size.width - windowFrame.size.width;
-  }
-  
-  if (y < screenFrame.origin.y) {
-    y = screenFrame.origin.y;
-  } else if (y + windowFrame.size.height > screenFrame.origin.y + screenFrame.size.height) {
-    y = screenFrame.origin.y + screenFrame.size.height - windowFrame.size.height;
-  }
-  
-  NSRect newFrame = NSMakeRect(x, y, windowFrame.size.width, windowFrame.size.height);
-  
-  NSDebugLog(@"NSWindow+Eau: New window frame with golden ratio: %@", NSStringFromRect(newFrame));
-  
-  [self setFrame:newFrame display:YES];
 }
 
 @end
