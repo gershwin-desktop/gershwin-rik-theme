@@ -353,12 +353,9 @@
 
       if (NSMouseInRect(mouseLoc, cancelRect, [controlView isFlipped]))
         {
-          /* Click on the cancel button — clear the search */
           [self setStringValue: @""];
           if ([controlView respondsToSelector: @selector(sendAction:)])
-            {
-              [(NSControl*)controlView sendAction: [self action] to: [self target]];
-            }
+            [(NSControl*)controlView sendAction: [self action] to: [self target]];
           return YES;
         }
     }
