@@ -43,6 +43,21 @@
 }
 @end
 
+// Stops the pulse timer when the owning NSButton is deallocated.
+// NSTimer stays scheduled in the run loop even when released, and reading a
+// weak cell after the button (and its cell) is gone can crash, so we tie the
+// timer's life to the button: the invalidator is associated with the button
+// and its dealloc runs when the button deallocates.
+@interface EauPulseTimerInvalidator : NSObject
+@property (nonatomic, strong) NSTimer *timer;
+@end
+@implementation EauPulseTimerInvalidator
+- (void) dealloc
+{
+  [_timer invalidate];
+}
+@end
+
 @implementation NSButton (EauKeyboardHandling)
 
 + (void) load
@@ -90,9 +105,11 @@
         {
           [cell setIsDefaultButton: @YES];
           // Use a weak proxy as timer target to avoid retain cycle.
-          // Timer is stored on self (NSButton), released when button deallocates.
-          NSTimer *old = objc_getAssociatedObject(self, @selector(eau_setKeyEquivalent:));
-          if (old) [old invalidate];
+          // The invalidator is stored on self (NSButton); its dealloc runs
+          // when the button deallocates and invalidates the timer.
+          EauPulseTimerInvalidator *oldInv =
+            objc_getAssociatedObject(self, @selector(eau_setKeyEquivalent:));
+          [oldInv.timer invalidate];
           EauPulseProxy *proxy = [[EauPulseProxy alloc] init];
           proxy.cell = cell;
           NSTimer *t = [NSTimer timerWithTimeInterval: 1.0/30.0
@@ -103,7 +120,9 @@
           [[NSRunLoop currentRunLoop] addTimer: t forMode: NSDefaultRunLoopMode];
           [[NSRunLoop currentRunLoop] addTimer: t forMode: NSModalPanelRunLoopMode];
           [[NSRunLoop currentRunLoop] addTimer: t forMode: NSEventTrackingRunLoopMode];
-          objc_setAssociatedObject(self, @selector(eau_setKeyEquivalent:), t,
+          EauPulseTimerInvalidator *inv = [[EauPulseTimerInvalidator alloc] init];
+          inv.timer = t;
+          objc_setAssociatedObject(self, @selector(eau_setKeyEquivalent:), inv,
                                    OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
     }

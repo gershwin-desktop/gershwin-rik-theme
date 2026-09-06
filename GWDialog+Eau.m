@@ -199,7 +199,7 @@ static void EAULayoutGWDialog(GWDialog *dialog)
   // Log dialog content for diagnostics.
   NSDebugLog(@"EauDialog: GWDialog layout title='%@' edit='%@' switch='%@'", 
          [titleField stringValue],
-         [editField stringValue],
+         [(id)editField string],
          (switchButt != nil) ? [switchButt title] : @"");
 }
 /* GWDialog (Eau) Category
@@ -331,7 +331,10 @@ static void EAULayoutGWDialog(GWDialog *dialog)
   __block id closeObs = [[NSNotificationCenter defaultCenter]
     addObserverForName: NSWindowWillCloseNotification
     object: self queue: nil usingBlock: ^(NSNotification *note) {
-      [NSApp abortModal];
+      /* Closing must always end the modal session, even for a wedged app */
+      @try {
+        [NSApp abortModal];
+      } @catch (id ex) {}
     }];
   
   // Call the original runModal (which is now named eau_runModal due to swizzling)

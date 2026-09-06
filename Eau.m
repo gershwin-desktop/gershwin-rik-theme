@@ -8,9 +8,20 @@
 #import "NSMenuItemCell+Eau.h"
 #import "Eau+Button.h"
 #import "EauMenuRelaunchManager.h"
+#import "AppearanceMetrics.h"
+
+/* Process-wide GSScaleFactor cache used by the AppearanceMetrics macros;
+ * reset by -invalidateScaleFactorCache for live scale-factor changes. */
+CGFloat GSWScaleFactorValue = 0;
 
 @interface Eau (NSWindowTitle)
 + (void)EAUswizzleNSWindowSetTitle;
++ (void)EAUswizzleGSStandardOffsets;
+@end
+
+/* Private window-decoration methods implemented in Eau+WindowDecoration.m */
+@interface Eau (EauWindowDecoration)
+- (void)invalidateTitleTextAttributes;
 @end
 
 static BOOL gForceExternalMenuByEnv = NO;
@@ -29,10 +40,6 @@ static BOOL EauEnvironmentContainsAppMenuToken(void)
     }
   return NO;
 }
-
-// Expose UIBridge-friendly API from theme so the UIBridge server can talk to the
-// theme process directly (avoids needing to inject an agent into each app).
-#import "UIBridgeProtocol.h"
 
 // Implementation of safe color conversion helper
 NSColor *EauSafeCalibratedRGB(NSColor *c)
@@ -63,112 +70,31 @@ NSColor *EauSafeCalibratedRGB(NSColor *c)
   return [NSColor colorWithCalibratedWhite:0.95 alpha:1.0];
 }
 
-// Dedicated UIBridge proxy object to expose the Eau theme's UIBridgeProtocol methods
-// This is needed because Distributed Objects requires explicit protocol conformance
-@interface EauUIBridgeProxy : NSObject <UIBridgeProtocol>
-{
-  Eau *theme;
-}
-- (id)initWithTheme:(Eau *)t;
-@end
-
-@interface Eau () <UIBridgeProtocol>
-@end
-
-@implementation EauUIBridgeProxy
-
-- (id)initWithTheme:(Eau *)t
-{
-  if ((self = [super init]) != nil) {
-    theme = t;
-  }
-  return self;
-}
-
-// Forward all protocol methods to the Eau theme
-- (bycopy NSString *)rootObjectsJSON {
-  return [theme rootObjectsJSON];
-}
-
-- (bycopy NSString *)detailsForObjectJSON:(NSString *)objID {
-  return [theme detailsForObjectJSON:objID];
-}
-
-- (bycopy NSString *)fullTreeForObjectJSON:(NSString *)objID {
-  return [theme fullTreeForObjectJSON:objID];
-}
-
-- (bycopy NSString *)invokeSelectorJSON:(NSString *)selectorName onObject:(NSString *)objID withArgs:(NSArray *)args {
-  return [theme invokeSelectorJSON:selectorName onObject:objID withArgs:args];
-}
-
-- (bycopy id)rootObjects {
-  return [theme rootObjects];
-}
-
-- (bycopy id)detailsForObject:(NSString *)objID {
-  return [theme detailsForObject:objID];
-}
-
-- (bycopy id)fullTreeForObject:(NSString *)objID {
-  return [theme fullTreeForObject:objID];
-}
-
-- (bycopy id)invokeSelector:(NSString *)selectorName onObject:(NSString *)objID withArgs:(NSArray *)args {
-  return [theme invokeSelector:selectorName onObject:objID withArgs:args];
-}
-
-- (bycopy NSArray *)listMenus {
-  return [theme listMenus];
-}
-
-- (bycopy NSString *)listMenusJSON {
-  return [theme listMenusJSON];
-}
-
-- (BOOL)invokeMenuItem:(NSString *)objID {
-  return [theme invokeMenuItem:objID];
-}
-
-@end
-
-
-// Connection delegate to enable multi-threading on child connections
-@interface EauConnectionDelegate : NSObject
-@end
-
-@implementation EauConnectionDelegate
-- (NSConnection *)connection:(NSConnection *)parentConnection didConnect:(NSConnection *)newConnection
-{
-    // Enable multi-threading on all child connections immediately
-    [newConnection enableMultipleThreads];
-    [newConnection setIndependentConversationQueueing:YES];
-    // NSLog(@"Eau: [Delegate] Enabled multi-threading on new connection: %@ (parent: %@)", newConnection, parentConnection);
-    return newConnection;
-}
-
-- (BOOL)connection:(NSConnection *)parentConnection shouldMakeNewConnection:(NSConnection *)newConnection
-{
-    // Enable multi-threading before the connection becomes active
-    [newConnection enableMultipleThreads];
-    [newConnection setIndependentConversationQueueing:YES];
-    // NSLog(@"Eau: [Delegate] shouldMakeNewConnection - enabled multi-threading on: %@", newConnection);
-    return YES;
-}
-@end
-
-static EauConnectionDelegate *gUIBridgeConnectionDelegate = nil;
-
-// Connection used to expose UIBridgeProtocol methods from theme (per-PID service)
-static NSConnection *gUIBridgeThemeConnection = nil;
-static EauUIBridgeProxy *gUIBridgeProxy = nil;
-
 @implementation Eau
+
+/* Reset the cached GSScaleFactor so the next render picks up a live change. */
+- (void)invalidateScaleFactorCache
+{
+  GSWScaleFactorInvalidate();
+  [self invalidateTitleTextAttributes];
+}
+
+/* Maximum size for the icon shown in front of a menu item (the image column,
+ * used for application and preference-pane icons).  Icons are scaled down to
+ * fit this box, never up, so a large app bundle icon renders small. */
+- (CGFloat) menuItemIconSize
+{
+  return 18.0;
+}
 
 + (void)load
 {
   // Swizzle NSWindow setTitle: to add middle-ellipsis truncation for long titles
   [self EAUswizzleNSWindowSetTitle];
+
+  // Match GNUstep's window frame offsets to the WM's real frame (no 1px
+  // border in compositor mode) so window geometry round-trips pixel-exact.
+  [self EAUswizzleGSStandardOffsets];
 
   gForceExternalMenuByEnv = EauEnvironmentContainsAppMenuToken();
   if (gForceExternalMenuByEnv)
@@ -176,112 +102,6 @@ static EauUIBridgeProxy *gUIBridgeProxy = nil;
       NSDebugLog(@"Eau: appmenu token detected in environment, forcing external menu mode");
     }
   // NSLog(@"Eau: +load called");
-  // Schedule UIBridge service registration after a delay to ensure run loop is active
-  // Using dispatch_after ensures this runs even if performSelector isn't processed
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-    [self _registerUIBridgeService:nil];
-  });
-}
-
-+ (void)_handleNewConnection:(NSNotification *)notification
-{
-  NSConnection *conn = [notification object];
-  // Enable multi-threading on all new connections to handle cross-process requests
-  [conn enableMultipleThreads];
-  [conn setIndependentConversationQueueing:YES];
-  // NSLog(@"Eau: Enabled multi-threading on new connection: %@", conn);
-}
-
-// Static variable to hold the shared Eau instance for UIBridge
-static Eau *gSharedEauInstance = nil;
-
-+ (void)_registerUIBridgeService:(id)unused
-{
-  // Allow apps to opt out via environment variable.  Set
-  // EAU_DISABLE_UIBRIDGE=1 before the Eau bundle loads to skip
-  // UIBridge registration entirely, avoiding the NSMessagePort
-  // socket polling that burns CPU on every runloop iteration.
-  {
-    const char *val = getenv("EAU_DISABLE_UIBRIDGE");
-    if (val != NULL && strcmp(val, "1") == 0) {
-      NSDebugLog(@"Eau: UIBridge disabled via EAU_DISABLE_UIBRIDGE");
-      return;
-    }
-  }
-
-  // Check if we have a valid Eau instance
-  if (!gSharedEauInstance) {
-    // Try to get from GSTheme
-    id themeObj = (id)[GSTheme theme];
-    if ([themeObj isKindOfClass:[Eau class]]) {
-      gSharedEauInstance = (Eau *)themeObj;
-    } else {
-      NSLog(@"Eau: _registerUIBridgeService called but no Eau instance available yet (got %@)", [themeObj class]);
-      return;
-    }
-  }
-  
-  // Already registered?
-  if (gUIBridgeThemeConnection) {
-    // NSLog(@"Eau: UIBridge service already registered, skipping");
-    return;
-  }
-  
-  pid_t pid = [[NSProcessInfo processInfo] processIdentifier];
-  // Register per-PID service so each app has its own unique UIBridge service
-  NSString *name = [NSString stringWithFormat:@"org.gershwin.Gershwin.Theme.UIBridge.%d", pid];
-  // NSLog(@"Eau: Registering per-PID UIBridge theme service: %@", name);
-  
-  @try {
-    // NSLog(@"Eau: Theme object class: %@, responds to listMenus: %d",
-    //       [gSharedEauInstance class],
-    //       (int)[gSharedEauInstance respondsToSelector:@selector(listMenus)]);
-    
-    // Create a proxy object that explicitly implements UIBridgeProtocol
-    gUIBridgeProxy = [[EauUIBridgeProxy alloc] initWithTheme:gSharedEauInstance];
-    // NSLog(@"Eau: Created UIBridge proxy: %@", gUIBridgeProxy);
-    
-    // Create connection delegate to handle child connections
-    gUIBridgeConnectionDelegate = [[EauConnectionDelegate alloc] init];
-    
-    gUIBridgeThemeConnection = [[NSConnection alloc] init];
-    // NSLog(@"Eau: Connection created - receivePort: %@, sendPort: %@",
-    //       [gUIBridgeThemeConnection receivePort],
-    //       [gUIBridgeThemeConnection sendPort]);
-    [gUIBridgeThemeConnection setRootObject:gUIBridgeProxy];
-    // Set delegate to enable multi-threading on child connections BEFORE they process messages
-    [gUIBridgeThemeConnection setDelegate:gUIBridgeConnectionDelegate];
-    // Allow independent request handling for thread safety
-    [gUIBridgeThemeConnection setIndependentConversationQueueing:YES];
-    // Enable multiple threads to allow handling requests from external processes
-    [gUIBridgeThemeConnection enableMultipleThreads];
-    
-    // Also keep notification handler as backup
-    [[NSNotificationCenter defaultCenter] addObserver:[self class]
-                                             selector:@selector(_handleNewConnection:)
-                                                 name:NSConnectionDidInitializeNotification
-                                               object:nil];
-    
-    // Don't manually add ports to the runloop here - [registerName:] adds the
-    // receive port in the standard modes.  The send port is for outgoing data
-    // only and must NOT be polled.  Adding it to the runloop causes redundant
-    // poll/recvmsg cycles on its socket fds, burning CPU on every event loop
-    // iteration when no data is available.
-    
-    // NSLog(@"Eau: Ports will be registered via registerName:");
-    
-    BOOL ok = [gUIBridgeThemeConnection registerName:name];
-    //NSLog(@"Eau: registerName returned: %d", ok);
-    if (ok) {
-      // NSLog(@"Eau: Successfully registered per-PID UIBridge theme service: %@", name);
-    } else {
-      NSLog(@"Eau: Failed to register per-PID UIBridge service as %@", name);
-      gUIBridgeThemeConnection = nil;
-    }
-  } @catch (NSException *e) {
-    NSLog(@"Eau: Exception during UIBridge registration: %@", e);
-    gUIBridgeThemeConnection = nil;
-  }
 }
 
 - (NSString *)_menuClientName
@@ -298,7 +118,17 @@ static Eau *gSharedEauInstance = nil;
 {
   if (menuClientConnection != nil)
     {
-      return YES;
+      /* The connection object is alive, but a name-server restart (gdnc) can
+         wipe the whole names registry while leaving the connection "valid" -
+         then Menu.app can no longer resolve our MenuClient.<pid> and shows no
+         app menu.  Verify the name still resolves; if it does not, drop the
+         stale connection so we register fresh below. */
+      if ([self _menuClientNameRegistered])
+        {
+          return YES;
+        }
+      NSDebugLog(@"Eau: Menu client registration lost - re-registering");
+      [self _teardownMenuClientConnection];
     }
 
   menuClientConnection = [[NSConnection alloc] init];
@@ -332,6 +162,71 @@ static Eau *gSharedEauInstance = nil;
   return YES;
 }
 
+/* Does our MenuClient name still resolve on the DO name server? */
+- (BOOL)_menuClientNameRegistered
+{
+  @try {
+    NSConnection *found = [NSConnection connectionWithRegisteredName: [self _menuClientName]
+                                                                host: nil];
+    if (found)
+      {
+        [found invalidate];
+        return YES;
+      }
+  } @catch (NSException *e) {
+    /* Name server may be restarting; treat as not registered. */
+  }
+  return NO;
+}
+
+/* Drop the client connection state so the next _ensureMenuClientRegistered
+   creates and registers a fresh connection. */
+- (void)_teardownMenuClientConnection
+{
+  [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                 name:NSConnectionDidDieNotification
+                                               object:menuClientConnection];
+  if (menuClientReceivePort != nil)
+    {
+      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
+                                     forMode:NSDefaultRunLoopMode];
+      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
+                                     forMode:NSModalPanelRunLoopMode];
+      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
+                                     forMode:NSEventTrackingRunLoopMode];
+      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
+                                     forMode:NSRunLoopCommonModes];
+      menuClientReceivePort = nil;
+    }
+  [menuClientConnection invalidate];
+  menuClientConnection = nil;
+}
+
+/* Periodic check that our MenuClient.<pid> registration still exists.  A
+   name-server restart (gdnc) wipes the names registry but the NSConnection
+   stays "valid", so _ensureMenuClientRegistered would normally return early.
+   The self-resolve check catches the loss and re-registers. */
+- (void)scheduleMenuClientVerification
+{
+  [self performSelector: @selector(verifyMenuClientRegistration)
+             withObject: nil
+             afterDelay: 30.0
+                inModes: [NSArray arrayWithObjects: NSDefaultRunLoopMode,
+                  NSModalPanelRunLoopMode, nil]];
+}
+
+- (void)verifyMenuClientRegistration
+{
+  [self _ensureMenuClientRegistered];
+  /* A windowless app (no key window ever) has no setMenu:forWindow: call to
+     trigger a server connection.  Reconnect here so the app menu reaches
+     Menu.app even when Menu.app started after this app - the app-level push
+     is Menu.app's only way to learn about such apps. */
+  [self _ensureMenuServerConnection];
+  [self _pushApplicationMenu];
+  [self scheduleMenuClientVerification];
+}
+
 - (BOOL)_ensureMenuServerConnection
 {
   if (menuServerConnection != nil && ![menuServerConnection isValid])
@@ -356,6 +251,13 @@ static Eau *gSharedEauInstance = nil;
 
   menuServerConnection = connection;
 
+  // The synchronous DO calls we make on this connection
+  // (updateMenuForWindow:menuData:clientName:) run on the main thread.  Without
+  // a request timeout a wedged or busy Menu.app would block our main thread
+  // forever and freeze the whole UI (Menu.app sets its own 0.3s timeout on the
+  // reverse calls).  Bound the wait so a dead peer can never hang us.
+  [menuServerConnection setRequestTimeout:1.0];
+
   id proxy = [menuServerConnection rootProxy];
   if (proxy != nil)
     {
@@ -369,6 +271,11 @@ static Eau *gSharedEauInstance = nil;
                                                selector:@selector(_menuServerConnectionDidDie:)
                                                    name:NSConnectionDidDieNotification
                                                  object:menuServerConnection];
+      /* On a fresh connection push our application-level menu immediately, so
+         a windowless app appears in the menu bar as soon as Menu.app (re)starts.
+         _pushApplicationMenu re-enters _ensureMenuServerConnection, which
+         returns YES immediately because menuServerProxy is already set. */
+      [self _pushApplicationMenu];
       // NSDebugLog(@"Eau: Connected to GNUstep menu server");
       return YES;
     }
@@ -528,10 +435,7 @@ static Eau *gSharedEauInstance = nil;
     {
       NSDebugLog(@"Eau: >>> initWithBundle after super init, self=%p", self);
       NSDebugLog(@"Eau: Initializing theme with bundle: %@", bundle);
-      
-      // Set shared instance for UIBridge service
-      gSharedEauInstance = self;
-      
+
       menuByWindowId = [[NSMutableDictionary alloc] init];
       menuServerAvailable = NO;
       menuServerConnected = NO;
@@ -542,12 +446,15 @@ static Eau *gSharedEauInstance = nil;
       // Register as a GNUstep menu client so Menu.app can call back for actions
       [self _ensureMenuClientRegistered];
 
+      // Keep the MenuClient registration alive across name-server restarts
+      // (a gdnc restart wipes the names registry while the connection stays
+      // "valid", so without this the app's menu silently disappears).
+      [self performSelector: @selector(scheduleMenuClientVerification)
+                 withObject: nil
+                 afterDelay: 5.0];
+
       // Try to connect to Menu.app's GNUstep menu server (may not be running yet)
       [self _ensureMenuServerConnection];
-      
-      // Register UIBridge service so server can query menus from theme
-      // NSLog(@"Eau: Registering UIBridge service from initWithBundle");
-      [[self class] _registerUIBridgeService:nil];
 
       // Observe menu changes so Menu.app can stay in sync
       [[NSNotificationCenter defaultCenter]
@@ -561,6 +468,22 @@ static Eau *gSharedEauInstance = nil;
         addObserver:self
            selector:@selector(windowDidBecomeKey:)
                name:@"NSWindowDidBecomeKeyNotification"
+             object:nil];
+
+      // Observe app activation so a windowless app re-pushes its
+      // application-level menu when it becomes the active application
+      // (e.g. via Alt-Tab or the app launcher).
+      [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(applicationDidBecomeActive:)
+               name:NSApplicationDidBecomeActiveNotification
+             object:nil];
+
+      // On termination, unregister the application-level menu.
+      [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(applicationWillTerminate:)
+               name:NSApplicationWillTerminateNotification
              object:nil];
 
       // After any menu selection finishes, push updated enabled/state values
@@ -638,29 +561,22 @@ static Eau *gSharedEauInstance = nil;
 - (void)_menuClientConnectionDidDie:(NSNotification *)notification
 {
   NSDebugLog(@"Eau: Menu client connection died");
-  NSDebugLog(@"Eau: Menu client connection died");
-  if (menuClientReceivePort != nil)
-    {
-      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
-                                     forMode:NSDefaultRunLoopMode];
-      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
-                                     forMode:NSModalPanelRunLoopMode];
-      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
-                                     forMode:NSEventTrackingRunLoopMode];
-      [[NSRunLoop currentRunLoop] removePort:menuClientReceivePort
-                                     forMode:NSRunLoopCommonModes];
-      menuClientReceivePort = nil;
-    }
-  menuClientConnection = nil;
+  [self _teardownMenuClientConnection];
+  /* Re-register so Menu.app keeps seeing this app's menu after a name-server
+     restart. */
+  [self _ensureMenuClientRegistered];
 }
 
 - (void)_menuServerConnectionDidDie:(NSNotification *)notification
 {
   NSDebugLog(@"Eau: Menu server connection died");
-  NSDebugLog(@"Eau: Menu server connection died");
   menuServerConnection = nil;
   menuServerProxy = nil;
   menuServerConnected = NO;
+  /* Reconnect immediately and re-push the application-level menu so a
+     windowless app's menu survives a Menu.app restart. */
+  [self _ensureMenuServerConnection];
+  [self _pushApplicationMenu];
   // Automatic Menu.app restart disabled.
   // [[EauMenuRelaunchManager sharedManager] relaunchMenuProcessIfSnapshotAvailable];
 }
@@ -681,6 +597,37 @@ static Eau *gSharedEauInstance = nil;
         {
           NSDebugLog(@"Eau: No key window available for menu change notification");
         }
+      /* Always keep the application-level menu in sync too.  This is what the
+         menu bar shows when the app is frontmost but has no window (windowless
+         app, or the last window closed).  Menu.app deduplicates identical
+         pushes, so sending it here on every menu change is cheap. */
+      [self _pushApplicationMenu];
+    }
+}
+
+- (void) applicationDidBecomeActive: (NSNotification*)notification
+{
+  (void)notification;
+  /* A windowless app can become the active application (e.g. via Alt-Tab or
+     the app launcher) without any window becoming key.  Re-push the app menu
+     so Menu.app is guaranteed to show it. */
+  [self _pushApplicationMenu];
+}
+
+- (void) applicationWillTerminate: (NSNotification*)notification
+{
+  (void)notification;
+  if (!menuServerProxy)
+    {
+      return;
+    }
+  @try
+    {
+      [(id<GSGNUstepMenuServer>)menuServerProxy unregisterApplication:[self _menuClientName]];
+    }
+  @catch (NSException *exception)
+    {
+      NSDebugLog(@"Eau: Exception unregistering application menu: %@", exception);
     }
 }
 
@@ -754,6 +701,61 @@ static Eau *gSharedEauInstance = nil;
 
 }
 
+/* Push this app's application-level menu (its main menu) to Menu.app.  This
+   is the menu the global bar shows when the app is the frontmost application
+   but has no window (windowless app, or the last window closed).  Menu.app
+   deduplicates identical pushes, so calling this frequently is cheap. */
+- (void) _pushApplicationMenu
+{
+  NSMenu *mainMenu = [NSApp mainMenu];
+  if (mainMenu == nil || [mainMenu numberOfItems] == 0)
+    {
+      return;
+    }
+
+  if (![self _ensureMenuClientRegistered])
+    {
+      return;
+    }
+  if (![self _ensureMenuServerConnection])
+    {
+      return;
+    }
+
+  @try
+    {
+      NSDictionary *menuData = [self _serializeMenu:mainMenu];
+      if (!menuData)
+        {
+          return;
+        }
+      [(id<GSGNUstepMenuServer>)menuServerProxy updateMenuForApplication:menuData
+                                                              clientName:[self _menuClientName]];
+      NSDebugLog(@"Eau: Pushed application-level menu to Menu.app");
+    }
+  @catch (NSException *exception)
+    {
+      NSDebugLog(@"Eau: Exception pushing application-level menu: %@", exception);
+    }
+}
+
+/* Menu.app asks the client to re-push its application-level menu (startup
+   recovery, or after the app's last window closed). */
+- (oneway void)requestApplicationMenuUpdate
+{
+  NSDebugLog(@"Eau: requestApplicationMenuUpdate called");
+
+  if (![NSThread isMainThread])
+    {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [self requestApplicationMenuUpdate];
+      });
+      return;
+    }
+
+  [self _pushApplicationMenu];
+}
+
 #pragma mark - Menu state push
 
 // Push only the enabled/state values for the current key window's menu to
@@ -794,6 +796,28 @@ static Eau *gSharedEauInstance = nil;
   @catch (NSException *exception)
     {
       NSDebugLog(@"Eau: Exception pushing enabled states: %@", exception);
+    }
+
+  /* Also refresh the application-level menu's enabled/state values so a
+     windowless frontmost app sees fresh states in the menu bar. */
+  NSMenu *mainMenu = [NSApp mainMenu];
+  if (mainMenu && [mainMenu numberOfItems] > 0)
+    {
+      @try
+        {
+          [self _recursiveMenuUpdate:mainMenu];
+          NSDictionary *appMenuData = [self _serializeMenuWithIndexPaths:mainMenu];
+          if (appMenuData)
+            {
+              [(id<GSGNUstepMenuServer>)menuServerProxy
+                updateApplicationMenuEnabledStates:appMenuData
+                                        clientName:[self _menuClientName]];
+            }
+        }
+      @catch (NSException *exception)
+        {
+          NSDebugLog(@"Eau: Exception pushing application enabled states: %@", exception);
+        }
     }
 }
 
@@ -931,496 +955,58 @@ static Eau *gSharedEauInstance = nil;
 
 - (void)_performMenuActionFromIPC:(NSDictionary *)info
 {
-  NSDebugLog(@"Eau: _performMenuActionFromIPC called with info: %@", info);
-  NSDebugLog(@"Eau: _performMenuActionFromIPC called with info: %@", info);
-  
   NSNumber *windowId = [info objectForKey:@"windowId"];
   NSArray *indexPath = [info objectForKey:@"indexPath"];
 
   if (windowId == nil || indexPath == nil)
     {
-      NSDebugLog(@"Eau: Invalid GNUstep menu action payload");
       return;
     }
 
   NSMenu *menu = [menuByWindowId objectForKey:windowId];
   if (menu == nil)
     {
-      NSDebugLog(@"Eau: No menu cached for window %@", windowId);
-      NSDebugLog(@"Eau: Available windows in cache: %@", [menuByWindowId allKeys]);
-      
-      // Fallback: if we only have one cached menu, use it
-      // This handles the case where the window ID doesn't match exactly
-      // (e.g., different X11 window ID than expected)
       if ([menuByWindowId count] == 1)
         {
           menu = [[menuByWindowId allValues] firstObject];
-          NSDebugLog(@"Eau: Using fallback menu (only one cached menu)");
         }
       else if ([menuByWindowId count] > 0)
         {
-          // Multiple windows cached - use the first one (usually the main window)
           menu = [[menuByWindowId allValues] firstObject];
-          NSDebugLog(@"Eau: Using fallback menu (first of %lu cached menus)", (unsigned long)[menuByWindowId count]);
         }
-      
+
       if (menu == nil)
         {
-          NSDebugLog(@"Eau: No cached menu available for fallback");
+          menu = [NSApp mainMenu];
+        }
+
+      if (menu == nil)
+        {
           return;
         }
     }
 
-  NSDebugLog(@"Eau: Found menu for window %@, looking up item at path %@", windowId, indexPath);
-  
   NSMenuItem *menuItem = [self _menuItemForIndexPath:indexPath inMenu:menu];
   if (menuItem == nil)
     {
-      NSDebugLog(@"Eau: Menu item not found for window %@ path %@", windowId, indexPath);
       return;
     }
 
-  NSDebugLog(@"Eau: Found menu item '%@', checking if enabled", [menuItem title]);
-  
   if (![menuItem isEnabled])
     {
-      NSDebugLog(@"Eau: Menu item '%@' disabled, ignoring", [menuItem title]);
       return;
     }
 
   SEL action = [menuItem action];
   id target = [menuItem target];
-  
-  NSDebugLog(@"Eau: Menu item '%@' - action: %@, target: %@", [menuItem title], NSStringFromSelector(action), target);
-  
+
   if (action == NULL)
     {
-      NSDebugLog(@"Eau: Menu item '%@' has no action", [menuItem title]);
       return;
     }
 
-  NSDebugLog(@"Eau: Sending action %@ to target %@ from menu item '%@'", NSStringFromSelector(action), target, [menuItem title]);
-  BOOL handled __attribute__((unused)) = [NSApp sendAction:action to:target from:menuItem];
-  NSDebugLog(@"Eau: sendAction returned %@ for menu item '%@'", handled ? @"YES" : @"NO", [menuItem title]);
-  NSDebugLog(@"Eau: Action sent successfully");
+  [NSApp sendAction:action to:target from:menuItem];
 }
-
-#pragma mark - UIBridgeProtocol (exposes only the frontmost/active window)
-
-- (bycopy NSArray *)listMenus
-{
-  __block NSMutableArray *result = nil;
-  
-  void (^block)(void) = ^{
-    result = [NSMutableArray array];
-    
-    // Get the key (frontmost) window
-    NSWindow *keyWindow = [NSApp keyWindow];
-    if (!keyWindow && [NSApp windows] && [[NSApp windows] count] > 0) {
-      // Fallback to first window if no key window
-      keyWindow = [[NSApp windows] objectAtIndex:0];
-    }
-    
-    if (keyWindow) {
-      NSNumber *winId = [self _windowIdentifierForWindow:keyWindow];
-      if (winId) {
-        NSMenu *m = [menuByWindowId objectForKey:winId];
-        if (!m && [menuByWindowId count] > 0) {
-          // Fallback: use the first cached menu
-          m = [[menuByWindowId allValues] firstObject];
-        }
-        if (m) {
-          NSDictionary *menuData = [self _serializeMenuWithIndexPaths:m];
-          [result addObject:@{ @"windowId": winId, @"menu": menuData }];
-        }
-      }
-    }
-
-    // Also include the application's main menu (Application menu) as a global fallback
-    NSMenu *appMainMenu = [NSApp mainMenu];
-    if (appMainMenu) {
-      // NSLog(@"Eau: Including application mainMenu as fallback");
-      NSDictionary *appMenuData = [self _serializeMenuWithIndexPaths:appMainMenu];
-      // Use nil windowId to indicate it's the global app menu
-      [result addObject:@{ @"windowId": [NSNull null], @"menu": appMenuData }];
-    }
-  };
-  
-  if ([NSThread isMainThread]) {
-    block();
-  } else {
-    dispatch_sync(dispatch_get_main_queue(), block);
-  }
-  
-  return result ?: [NSArray array];
-}
-
-- (bycopy NSString *)listMenusJSON
-{
-  NSArray *menus = [self listMenus];
-  NSData *d = [NSJSONSerialization dataWithJSONObject:menus options:0 error:nil];
-  if (!d) return @"null";
-  return [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
-}
-
-- (BOOL)invokeMenuItem:(NSString *)objID
-{
-  if (!objID || ![objID hasPrefix:@"menuitem:"]) return NO;
-  
-  // Expected format: menuitem:<windowId>:<idx0>.<idx1>...
-  NSArray *parts = [objID componentsSeparatedByString:@":"];
-  if ([parts count] < 3) return NO;
-  NSString *windowStr = parts[1];
-  NSString *pathStr = parts[2];
-  NSNumber *windowId = @([windowStr longLongValue]);
-  NSArray *components = [pathStr componentsSeparatedByString:@"."];
-  NSMutableArray *indexPath = [NSMutableArray array];
-  for (NSString *c in components) { [indexPath addObject:@([c integerValue])]; }
-  
-  // Call into existing menu activation code from main thread
-  __block BOOL handled = NO;
-  if ([NSThread isMainThread]) {
-    @try {
-      [self activateMenuItemAtPath:indexPath forWindow:windowId];
-      handled = YES;
-    } @catch (NSException *e) {
-      NSLog(@"Eau: Exception in invokeMenuItem %@: %@", objID, e);
-      handled = NO;
-    }
-  } else {
-    dispatch_sync(dispatch_get_main_queue(), ^{
-      @try {
-        [self activateMenuItemAtPath:indexPath forWindow:windowId];
-        handled = YES;
-      } @catch (NSException *e) {
-        NSLog(@"Eau: Exception in invokeMenuItem %@: %@", objID, e);
-        handled = NO;
-      }
-    });
-  }
-  
-  return handled;
-}
-
-- (bycopy id)rootObjects
-{
-  __block NSDictionary *result = nil;
-  
-  void (^block)(void) = ^{
-    NSMutableArray *wins = [NSMutableArray array];
-    for (NSWindow *w in [NSApp windows]) {
-      NSMutableDictionary *d = [NSMutableDictionary dictionary];
-      d[@"object_id"] = [self _objectIDForObject:w];
-      d[@"class"] = NSStringFromClass([w class]);
-      d[@"title"] = [w title] ?: @"";
-      d[@"frame"] = NSStringFromRect([w frame]);
-      d[@"windowNumber"] = @([w windowNumber]);
-      d[@"hidden"] = @(![w isVisible]);
-      [wins addObject:d];
-    }
-    result = @{
-      @"NSApp": [self _objectIDForObject:NSApp],
-      @"windows": wins
-    };
-  };
-  
-  if ([NSThread isMainThread]) {
-    block();
-  } else {
-    dispatch_sync(dispatch_get_main_queue(), block);
-  }
-  
-  return result ?: @{ @"NSApp": @"", @"windows": @[] };
-}
-
-#pragma mark - UIBridge Object Serialization Helpers
-
-- (NSString *)_objectIDForObject:(id)obj
-{
-  if (!obj) return @"";
-  return [NSString stringWithFormat:@"objc:%p", obj];
-}
-
-- (id)_objectForID:(NSString *)objID
-{
-  if (![objID hasPrefix:@"objc:"]) return nil;
-  unsigned long long ptrVal;
-  NSScanner *scanner = [NSScanner scannerWithString:[objID substringFromIndex:5]];
-  if ([scanner scanHexLongLong:&ptrVal]) {
-    return (__bridge id)(void *)ptrVal;
-  }
-  return nil;
-}
-
-- (id)_serializeObject:(id)obj detailed:(BOOL)detailed depth:(int)depth
-{
-  if (!obj || obj == [NSNull null] || depth < 0) return [NSNull null];
-  if ([obj isKindOfClass:[NSString class]] || [obj isKindOfClass:[NSNumber class]]) return obj;
-  
-  NSString *className = @"Unknown";
-  @try { className = NSStringFromClass([obj class]); } @catch (NSException *e) { }
-  
-  NSMutableDictionary *dict = [NSMutableDictionary dictionary];
-  dict[@"object_id"] = [self _objectIDForObject:obj];
-  dict[@"class"] = className;
-  
-  // Handle NSView
-  if ([obj isKindOfClass:[NSView class]]) {
-    NSView *view = (NSView *)obj;
-    NSRect frame = [view frame];
-    dict[@"frame"] = NSStringFromRect(frame);
-    dict[@"hidden"] = @([view isHidden]);
-    
-    // Get title for buttons
-    if ([view respondsToSelector:@selector(title)]) {
-      id title = [view performSelector:@selector(title)];
-      if (title && ![title isEqual:@""]) dict[@"title"] = title;
-    }
-    // Get string value for text fields
-    if ([view isKindOfClass:[NSTextField class]]) {
-      NSTextField *tf = (NSTextField *)view;
-      dict[@"stringValue"] = [tf stringValue] ?: @"";
-      dict[@"string"] = [tf stringValue] ?: @"";
-    }
-    
-    // Computed screen coordinates
-    @try {
-      if ([view window]) {
-        NSRect winRect = [view convertRect:[view bounds] toView:nil];
-        dict[@"window_frame"] = NSStringFromRect(winRect);
-        
-        NSRect screenRect = [[view window] convertRectToScreen:winRect];
-        dict[@"screen_frame"] = NSStringFromRect(screenRect);
-      }
-    } @catch (NSException *e) { }
-    
-    // Control-specific properties
-    if ([view isKindOfClass:[NSControl class]]) {
-      NSControl *control = (NSControl *)view;
-      dict[@"enabled"] = @([control isEnabled]);
-      dict[@"tag"] = @([control tag]);
-    }
-    
-    // Button-specific properties
-    if ([view isKindOfClass:[NSButton class]]) {
-      NSButton *button = (NSButton *)view;
-      dict[@"keyEquivalent"] = [button keyEquivalent] ?: @"";
-      dict[@"keyModifiers"] = @([button keyEquivalentModifierMask]);
-    }
-    
-    // Recurse subviews if detailed
-    if (detailed && depth > 0) {
-      NSMutableArray *subviews = [NSMutableArray array];
-      for (NSView *sub in [view subviews]) {
-        [subviews addObject:[self _serializeObject:sub detailed:YES depth:depth - 1]];
-      }
-      dict[@"subviews"] = subviews;
-    }
-  }
-  
-  // Handle NSWindow
-  if ([obj isKindOfClass:[NSWindow class]]) {
-    NSWindow *win = (NSWindow *)obj;
-    dict[@"title"] = [win title] ?: @"";
-    dict[@"frame"] = NSStringFromRect([win frame]);
-    dict[@"hidden"] = @(![win isVisible]);
-    
-    if (detailed && depth > 0) {
-      dict[@"contentView"] = [self _serializeObject:[win contentView] detailed:YES depth:depth - 1];
-    }
-  }
-  
-  // Handle NSApplication
-  if ([obj isKindOfClass:[NSApplication class]]) {
-    NSApplication *app = (NSApplication *)obj;
-    if (detailed && depth > 0) {
-      NSMutableArray *wins = [NSMutableArray array];
-      for (NSWindow *win in [app windows]) {
-        [wins addObject:[self _serializeObject:win detailed:YES depth:depth - 1]];
-      }
-      dict[@"windows"] = wins;
-    }
-  }
-  
-  // Handle NSMenu
-  if ([obj isKindOfClass:[NSMenu class]]) {
-    NSMenu *menu = (NSMenu *)obj;
-    dict[@"title"] = [menu title] ?: @"";
-    if (detailed && depth > 0) {
-      NSMutableArray *items = [NSMutableArray array];
-      for (NSMenuItem *item in [menu itemArray]) {
-        [items addObject:[self _serializeObject:item detailed:YES depth:depth - 1]];
-      }
-      dict[@"items"] = items;
-    }
-  }
-  
-  // Handle NSMenuItem
-  if ([obj isKindOfClass:[NSMenuItem class]]) {
-    NSMenuItem *item = (NSMenuItem *)obj;
-    dict[@"title"] = [item title] ?: @"";
-    dict[@"enabled"] = @([item isEnabled]);
-    dict[@"hasSubmenu"] = @([item hasSubmenu]);
-    dict[@"isSeparator"] = @([item isSeparatorItem]);
-    if ([item action]) dict[@"action"] = NSStringFromSelector([item action]);
-    if ([item keyEquivalent]) dict[@"keyEquivalent"] = [item keyEquivalent];
-    dict[@"keyModifiers"] = @([item keyEquivalentModifierMask]);
-    dict[@"tag"] = @([item tag]);
-    dict[@"state"] = @([item state]);
-    if ([item hasSubmenu] && detailed && depth > 0) {
-      dict[@"submenu"] = [self _serializeObject:[item submenu] detailed:YES depth:depth - 1];
-    }
-  }
-  
-  return dict;
-}
-
-- (bycopy id)detailsForObject:(NSString *)objID
-{
-  __block id result = nil;
-  
-  void (^block)(void) = ^{
-    // Handle menuitem: IDs
-    if (objID && [objID hasPrefix:@"menuitem:"]) {
-      NSArray *parts = [objID componentsSeparatedByString:@":"];
-      if ([parts count] >= 3) {
-        NSNumber *windowId = @([parts[1] longLongValue]);
-        NSString *pathStr = parts[2];
-        NSArray *components = [pathStr componentsSeparatedByString:@"."];
-        NSMutableArray *indexPath = [NSMutableArray array];
-        for (NSString *c in components) [indexPath addObject:@([c integerValue])];
-        NSMenu *menu = [menuByWindowId objectForKey:windowId];
-        if (!menu && [menuByWindowId count] > 0) menu = [[menuByWindowId allValues] firstObject];
-        NSMenuItem *it = [self _menuItemForIndexPath:indexPath inMenu:menu];
-        if (it) {
-          result = [self _serializeObject:it detailed:YES depth:2];
-          return;
-        }
-      }
-    }
-    
-    // Handle objc: IDs
-    id obj = [self _objectForID:objID];
-    if (obj) {
-      result = [self _serializeObject:obj detailed:YES depth:2];
-    } else {
-      result = [NSNull null];
-    }
-  };
-  
-  if ([NSThread isMainThread]) {
-    block();
-  } else {
-    dispatch_sync(dispatch_get_main_queue(), block);
-  }
-  
-  return result ?: [NSNull null];
-}
-
-- (bycopy id)fullTreeForObject:(NSString *)objID
-{
-  __block id result = nil;
-  
-  void (^block)(void) = ^{
-    id obj = nil;
-    if (!objID || [objID length] == 0 || [objID isEqualToString:@"NSApp"]) {
-      obj = NSApp;
-    } else {
-      obj = [self _objectForID:objID];
-    }
-    
-    if (obj) {
-      result = [self _serializeObject:obj detailed:YES depth:15];
-    } else {
-      // Fallback to menu tree for backwards compatibility
-      result = @{ @"menus": [self listMenus] };
-    }
-  };
-  
-  if ([NSThread isMainThread]) {
-    block();
-  } else {
-    dispatch_sync(dispatch_get_main_queue(), block);
-  }
-  
-  return result ?: [NSNull null];
-}
-
-- (bycopy id)invokeSelector:(NSString *)selectorName onObject:(NSString *)objID withArgs:(NSArray *)args
-{
-  __block id result = nil;
-  
-  void (^block)(void) = ^{
-    // Handle invokeMenuItemByID: special case
-    if (selectorName && [selectorName isEqualToString:@"invokeMenuItemByID:"] && args && [args count] > 0) {
-      NSString *menuId = args[0];
-      BOOL ok = [self invokeMenuItem:menuId];
-      result = ok ? @YES : @NO;
-      return;
-    }
-    
-    // General selector invocation
-    id obj = [self _objectForID:objID];
-    if (!obj) {
-      result = @{ @"error": @{ @"code": @-32000, @"message": @"Object not found" } };
-      return;
-    }
-    
-    SEL sel = NSSelectorFromString(selectorName);
-    if (![obj respondsToSelector:sel]) {
-      result = @{ @"error": @{ @"code": @-32601, @"message": @"Selector not found" } };
-      return;
-    }
-    
-    NSMethodSignature *sig = [obj methodSignatureForSelector:sel];
-    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-    [inv setTarget:obj];
-    [inv setSelector:sel];
-    
-    if (args && [args isKindOfClass:[NSArray class]]) {
-      for (NSUInteger i = 0; i < [args count]; i++) {
-        if (i + 2 >= [sig numberOfArguments]) break;
-        id arg = args[i];
-        if (arg == [NSNull null]) arg = nil;
-        [inv setArgument:&arg atIndex:i + 2];
-      }
-    }
-    
-    @try {
-      [inv invoke];
-      
-      if ([sig methodReturnLength] > 0) {
-        const char *retType = [sig methodReturnType];
-        if (retType[0] == '@' || retType[0] == '#') {
-          id retVal = nil;
-          [inv getReturnValue:&retVal];
-          result = [self _serializeObject:retVal detailed:NO depth:1];
-        } else {
-          result = @"OK";
-        }
-      } else {
-        result = @"OK";
-      }
-    } @catch (NSException *e) {
-      result = @{ @"error": @{ @"code": @-32001, @"message": [e description] } };
-    }
-  };
-  
-  if ([NSThread isMainThread]) {
-    block();
-  } else {
-    dispatch_sync(dispatch_get_main_queue(), block);
-  }
-  
-  return result ?: [NSNull null];
-}
-
-// JSON variants for compatibility
-- (bycopy NSString *)rootObjectsJSON { NSData *d = [NSJSONSerialization dataWithJSONObject:[self rootObjects] options:0 error:nil]; return d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : @"null"; }
-- (bycopy NSString *)detailsForObjectJSON:(NSString *)objID { NSData *d = [NSJSONSerialization dataWithJSONObject:[self detailsForObject:objID] options:0 error:nil]; return d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : @"null"; }
-- (bycopy NSString *)fullTreeForObjectJSON:(NSString *)objID { NSData *d = [NSJSONSerialization dataWithJSONObject:[self fullTreeForObject:objID] options:0 error:nil]; return d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : @"null"; }
-- (bycopy NSString *)invokeSelectorJSON:(NSString *)selectorName onObject:(NSString *)objID withArgs:(NSArray *)args { id r = [self invokeSelector:selectorName onObject:objID withArgs:args]; NSData *d = [NSJSONSerialization dataWithJSONObject:r options:0 error:nil]; return d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : @"null"; }
-
 
 - (oneway void)activateMenuItemAtPath:(NSArray *)indexPath forWindow:(NSNumber *)windowId
 {
@@ -1501,6 +1087,13 @@ static Eau *gSharedEauInstance = nil;
   if (!menu && [menuByWindowId count] > 0)
     {
       menu = [[menuByWindowId allValues] firstObject];
+    }
+
+  // Final fallback: the application's main menu (windowless app, or the
+  // menu was never associated with a window).
+  if (!menu)
+    {
+      menu = [NSApp mainMenu];
     }
 
   if (!menu)

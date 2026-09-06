@@ -7,9 +7,12 @@
    This allows the Eau theme to:
    1. Receive notifications when the main menu changes
    2. Control menu visibility (hide in-app menu bar for global menu)
-   3. Detect and close orphaned dropdown menu windows that should have
-      been closed when the user switched to a different top-level menu
-      item but weren't due to a tracking-loop cleanup gap
+   3. Enforce the invariant that before a new menu panel is shown, every
+      panel left open by an earlier interaction is closed (the exception
+      is a submenu, whose parent chain stays put).  Upstream only tears
+      the first-level dropdown down for NSWindows95InterfaceStyle, so
+      under the Macintosh style orphaned panels used to stay mapped and
+      wedge the menu bar.
    4. Implement overflowing menu scrolling (Leopard-style) when a menu
       has more items than fit on screen
 */
@@ -38,22 +41,31 @@
 @end
 
 /* ---- Helper: find NSMenuView in an NSMenuPanel's content view hierarchy ---- */
+static NSView *_eau_findMenuViewInView(NSView *view)
+{
+  if (view == nil) return nil;
+  if ([view isKindOfClass: objc_getClass("NSMenuView")])
+    {
+      return view;
+    }
+  for (NSView *subview in [view subviews])
+    {
+      NSView *found = _eau_findMenuViewInView(subview);
+      if (found) return found;
+    }
+  return nil;
+}
+
 static NSMenuView *_eau_findMenuViewInWindow(NSWindow *window)
 {
   if (!window) return nil;
   NSView *contentView = [window contentView];
   if (!contentView) return nil;
 
-  // NSMenuView is typically a direct subview of the content view.
-  // Look through all subviews for an NSMenuView.
-  for (NSView *subview in [contentView subviews])
-    {
-      if ([subview isKindOfClass: objc_getClass("NSMenuView")])
-        {
-          return (NSMenuView *)subview;
-        }
-    }
-  return nil;
+  // NSMenuView is typically a direct subview of the content view, but some
+  // apps (e.g. Menu.app's Command menu) wrap it in an intermediate NSView.
+  // Recurse so the scroll manager is found regardless of nesting depth.
+  return (NSMenuView *)_eau_findMenuViewInView(contentView);
 }
 
 /* ---- Overflow handling for tall menus ---- */
@@ -245,23 +257,30 @@ static void _eau_destroyX11MenuWindows(void)
       if (attr.map_state != IsViewable)
         continue;
 
-      /* Check WM_CLASS for "Menu" "GNUstep" */
+      /* Check WM_CLASS for "Menu".  GNUstep windows carry the class hint
+         "Menu", "Menu" (res_name=Menu, res_class=Menu) for ALL of a menu
+         app's windows - the bar, dropdowns, panels and caches alike.  The
+         old check for res_class "GNUstep" matched nothing, so orphaned
+         dropdowns were never cleaned up and wedged the menu bar. */
       XClassHint classHint;
       if (!XGetClassHint(_eau_x11_display, w, &classHint))
         continue;
       BOOL isMenu = (classHint.res_name
                      && strcmp(classHint.res_name, "Menu") == 0
                      && classHint.res_class
-                     && strcmp(classHint.res_class, "GNUstep") == 0);
+                     && strcmp(classHint.res_class, "Menu") == 0);
       XFree(classHint.res_name);
       XFree(classHint.res_class);
       if (!isMenu)
         continue;
 
-      /* Skip the menu bar itself — it's a "Menu" "GNUstep" window
-         too but sits at y=0 with the menu bar height (~22px).
-         Only destroy windows that are clearly dropdowns (>25px). */
-      if (attr.y == 0 && attr.height <= 25)
+      /* Only destroy windows that are clearly dropdown menus.  The menu bar
+         itself is a "Menu" "Menu" window too (at y=0, 22px tall), as are
+         small utility windows such as the 22px search panel and the 14/18px
+         GSCache windows.  A real dropdown is taller than a menu item
+         (menuItemHeight is 22px, so a single-item menu window is >22px);
+         skip anything at or below the bar height. */
+      if (attr.height <= 22)
         continue;
 
       /* Found a visible GNUstep Menu window.  Destroy the parent
@@ -306,6 +325,146 @@ static void _eau_destroyX11MenuWindows(void)
   XSync(_eau_x11_display, False);
 }
 
+/* ---- Close-ahead enforcement: never show a new panel on top of old ones ----
+ *
+ * Upstream only tears down the first-level dropdown for
+ * NSWindows95InterfaceStyle (see NSMenuView -trackWithEvent: teardown and
+ * the mainWindowMenuView guard).  Under the Macintosh style an orphaned
+ * panel stays mapped, swallows clicks and wedges the menu bar.
+ *
+ * Invariant enforced here: before a new menu panel is displayed, every
+ * visible panel that is NOT part of the new panel's own ancestor chain
+ * (menu + supermenus) is closed first.  Submenu nesting is exempt by
+ * construction: a submenu's parent menus are its supermenus, so they stay
+ * in the keep-set.
+ *
+ * The AppKit-level pass only closes panels GNUstep still reports visible.
+ * During a fast sweep over the menu bar the previous dropdown is already
+ * marked hidden by the tracking loop while its X11 window is still mapped
+ * (the original wedge), so a second pass withdraws stale panels directly
+ * at the X11 level regardless of the AppKit visibility flag.
+ */
+static void _eau_closeStaleMenuPanelsForMenu(NSMenu *openingMenu)
+{
+  if (openingMenu == nil) return;
+
+  Class panelClass = objc_getClass("NSMenuPanel");
+  if (panelClass == nil) return;
+
+  /* NOTE: we deliberately do NOT iterate [NSApp windows] here.  GNUstep menu
+   * panels have is_released_when_closed set, so the tracking loop frees them;
+   * a panel that appears in [NSApp windows] can already be deallocated (its
+   * memory reused - the freed-object pattern fills it with the NSMenuPanel
+   * class pointer), and messaging it then SIGSEGVs.  The stale-panel "wedge"
+   * is an X11-mapping problem, so the X11-level withdrawal below is the
+   * correct and crash-free way to fix it.
+   */
+
+  /* X11-level fallback: withdraw every still-mapped "Menu" dropdown window
+     that is not part of the opening menu's keep-set.  AppKit's visibility
+     flag is not consulted here because the stale panel is typically already
+     flagged hidden by the tracking loop while its X11 window remains mapped
+     (that is the wedge this enforcement exists to prevent).  Withdrawing,
+     rather than destroying, keeps the cached NSMenuPanel window usable for
+     later re-display.
+     The keep-set is built from openingMenu's own window chain (menus, which
+     are retained by the menu system and cannot dangle), NOT from [NSApp
+     windows] (which can contain freed panels). */
+  _eau_ensureState();
+  if (_eau_x11_display == NULL) return;
+
+  NSMutableSet *keepXids = [NSMutableSet set];
+  {
+    NSMenu *km = openingMenu;
+    while (km != nil)
+      {
+        NSWindow *pw = [km window];
+        if (pw != nil)
+          {
+            unsigned long xid = (unsigned long)[pw windowRef];
+            if (xid != 0)
+              [keepXids addObject: [NSNumber numberWithUnsignedLong: xid]];
+          }
+        km = [km supermenu];
+      }
+  }
+
+  Window root = DefaultRootWindow(_eau_x11_display);
+  Window unused_root, unused_parent;
+  Window *children = NULL;
+  unsigned int nchildren = 0;
+
+  if (!XQueryTree(_eau_x11_display, root, &unused_root, &unused_parent,
+                  &children, &nchildren))
+    return;
+
+  for (unsigned int i = 0; i < nchildren; i++)
+    {
+      Window w = children[i];
+      XWindowAttributes attr;
+      if (!XGetWindowAttributes(_eau_x11_display, w, &attr))
+        continue;
+
+      if (attr.map_state != IsViewable)
+        continue;
+
+      XClassHint classHint;
+      if (!XGetClassHint(_eau_x11_display, w, &classHint))
+        continue;
+      BOOL isMenu = (classHint.res_name
+                     && strcmp(classHint.res_name, "Menu") == 0
+                     && classHint.res_class
+                     && strcmp(classHint.res_class, "Menu") == 0);
+      XFree(classHint.res_name);
+      XFree(classHint.res_class);
+      if (!isMenu)
+        continue;
+
+      /* Keep the existing guard: skip anything at or below the menu bar
+         height so the bar itself and the small utility windows survive. */
+      if (attr.height <= 22)
+        continue;
+
+      if ([keepXids containsObject: [NSNumber numberWithUnsignedLong: (unsigned long)w]])
+        continue;
+
+      NSDebugLog(@"Eau+Menu: withdrawing stale dropdown X window 0x%lx "
+                 "before opening %@", (unsigned long)w, openingMenu);
+      XWithdrawWindow(_eau_x11_display, w,
+                      XScreenNumberOfScreen(attr.screen));
+
+      /* Withdraw the parent too: GNUstep may reparent the NSWindow's X11
+         window under an unmanaged container that stays visible on its own. */
+      Window parent = w;
+      Window *children2 = NULL;
+      unsigned int nc2 = 0;
+      if (XQueryTree(_eau_x11_display, w, &unused_root, &parent,
+                     &children2, &nc2))
+        {
+          if (children2) XFree(children2);
+        }
+      if (parent != root && parent != None)
+        XWithdrawWindow(_eau_x11_display, parent,
+                        XScreenNumberOfScreen(attr.screen));
+    }
+
+  if (children) XFree(children);
+  XSync(_eau_x11_display, False);
+}
+
+/* ---- NSMenuPanel orderFrontRegardless swizzle ---- */
+
+static void (*s_orig_menuPanelOrderFrontRegardless)(id, SEL) = NULL;
+
+static void s_eau_menuPanelOrderFrontRegardless(id self, SEL _cmd)
+{
+  NSMenu *menu = [(id)self _menu];
+  if (menu != nil)
+    _eau_closeStaleMenuPanelsForMenu(menu);
+  if (s_orig_menuPanelOrderFrontRegardless)
+    s_orig_menuPanelOrderFrontRegardless(self, _cmd);
+}
+
 /* ---- trackWithEvent: swizzle (increment/decrement, then cleanup) ---- */
 
 static BOOL (*s_orig_trackWithEvent)(id, SEL, id) = NULL;
@@ -314,8 +473,6 @@ static BOOL s_eau_trackWithEvent(id self, SEL _cmd, NSEvent *event)
 {
   _eau_activeTrackingCount++;
   _eau_trackedMenuView = (NSMenuView *)self;
-  NSDebugLog(@"Eau+Menu: trackWithEvent start tracking=%d view=%@",
-             _eau_activeTrackingCount, self);
   BOOL result = NO;
   @try
     {
@@ -335,6 +492,58 @@ static BOOL s_eau_trackWithEvent(id self, SEL _cmd, NSEvent *event)
 /* ---- nextEventMatchingMask: swizzle for scroll wheel during tracking ---- */
 
 static NSEvent* (*s_orig_nextEventMatchingMask)(id, SEL, NSUInteger, NSDate*, NSString*, BOOL) = NULL;
+
+/* Find the scroll manager for the menu currently being tracked.
+ *
+ * The scroll manager is associated with the MENU VIEW's window (and the view
+ * itself), set up by setupOverflowForMenuView: when the menu was displayed.
+ * [NSApp keyWindow] is NOT reliable during tracking: GNUstep menu panels are
+ * not key windows, and in Menu.app (global menu bar) the key window is often
+ * nil while a dropdown is open.  So walk the tracked view's attached-submenu
+ * chain (same logic as the keyboard-navigation code) to the deepest OPEN
+ * submenu and look the manager up on its window/view.  Fall back to the key
+ * window for non-menu apps where that works.
+ */
+static EauMenuScrollManager *_eau_activeScrollManager(void)
+{
+  if (_eau_activeTrackingCount <= 0) return nil;
+
+  NSMenuView *view = _eau_trackedMenuView;
+  while (view)
+    {
+      NSWindow *w = [view window];
+      if (w)
+        {
+          EauMenuScrollManager *mgr = [EauMenuScrollManager scrollManagerForWindow: w];
+          if (!mgr)
+            {
+              mgr = [EauMenuScrollManager scrollManagerForMenuView: view];
+            }
+          if (mgr) return mgr;
+        }
+      NSMenuView *attached = [view attachedMenuView];
+      NSWindow *aw = [attached window];
+      if (!attached || !aw || ![aw isVisible]) break; // closed submenu
+      view = attached;
+    }
+
+  // Fallback: some apps make the menu panel the key window.
+  NSWindow *keyWindow = [NSApp keyWindow];
+  if (keyWindow)
+    {
+      EauMenuScrollManager *mgr = [EauMenuScrollManager scrollManagerForWindow: keyWindow];
+      if (!mgr)
+        {
+          NSMenuView *menuView = _eau_findMenuViewInWindow(keyWindow);
+          if (menuView)
+            {
+              mgr = [EauMenuScrollManager scrollManagerForMenuView: menuView];
+            }
+        }
+      if (mgr) return mgr;
+    }
+  return nil;
+}
 
 static NSEvent* s_eau_nextEventMatchingMask(id self, SEL _cmd, NSUInteger mask, NSDate *date, NSString *mode, BOOL dequeue)
 {
@@ -376,18 +585,9 @@ static NSEvent* s_eau_nextEventMatchingMask(id self, SEL _cmd, NSUInteger mask, 
       // edge scrolling doesn't fire reliably in NSEventTrackingRunLoopMode
       // on this GNUstep version.  pollEdgeScroll has its own throttle.
       {
-        NSWindow *keyWindow = [NSApp keyWindow];
-        if (keyWindow)
+        EauMenuScrollManager *mgr = _eau_activeScrollManager();
+        if (mgr)
           {
-            EauMenuScrollManager *mgr = [EauMenuScrollManager scrollManagerForWindow: keyWindow];
-            if (!mgr)
-              {
-                NSMenuView *menuView = _eau_findMenuViewInWindow(keyWindow);
-                if (menuView)
-                  {
-                    mgr = [EauMenuScrollManager scrollManagerForMenuView: menuView];
-                  }
-              }
             [mgr pollEdgeScroll];
           }
       }
@@ -395,23 +595,11 @@ static NSEvent* s_eau_nextEventMatchingMask(id self, SEL _cmd, NSUInteger mask, 
       // --- Scroll wheel handling ---
       if ([event type] == NSScrollWheel)
         {
-          NSWindow *keyWindow = [NSApp keyWindow];
-          if (keyWindow)
+          EauMenuScrollManager *mgr = _eau_activeScrollManager();
+          if (mgr && [mgr isScrolling])
             {
-              EauMenuScrollManager *mgr = [EauMenuScrollManager scrollManagerForWindow: keyWindow];
-              if (!mgr)
-                {
-                  NSMenuView *menuView = _eau_findMenuViewInWindow(keyWindow);
-                  if (menuView)
-                    {
-                      mgr = [EauMenuScrollManager scrollManagerForMenuView: menuView];
-                    }
-                }
-              if (mgr && [mgr isScrolling])
-                {
-                  CGFloat deltaY = [event deltaY];
-                  [mgr scrollByDelta: deltaY];
-                }
+              CGFloat deltaY = [event deltaY];
+              [mgr scrollByDelta: deltaY];
             }
         }
 
@@ -538,8 +726,103 @@ static NSEvent* s_eau_nextEventMatchingMask(id self, SEL _cmd, NSUInteger mask, 
  */
 - (void)eau_displayTransient
 {
+  // Same close-ahead as eau_display/orderFrontRegardless: transient
+  // panels are shown via _bWindow orderFront:, which bypasses the
+  // NSMenuPanel orderFrontRegardless swizzle, so enforce here too.
+  _eau_closeStaleMenuPanelsForMenu(self);
   [self eau_displayTransient];
 }
+
+/**
+ * Swizzled -performActionForItemAtIndex: implementation.
+ *
+ * Classic Mac OS (System 7) menu feedback: when the user triggers an item
+ * by releasing the mouse over it, the item blinks twice (highlight,
+ * unhighlight, highlight, unhighlight) before the menu closes.
+ *
+ * GNUstep calls this from -[NSMenuView _trackWithEvent:] AFTER the mouse
+ * has been released but BEFORE the menu window is taken down and the item
+ * is unhighlighted (that happens back in _trackWithEvent:).  So we can
+ * blink here while the menu is still on screen.
+ *
+ * Ordering: we call the original implementation FIRST (firing the action
+ * immediately - we must not delay the user's command while the menu
+ * blinks), then perform the blink as pure visual feedback.  The action is
+ * synchronous, so by the time it returns the menu window is still visible
+ * and the highlight is still set - perfect for the blink.
+ *
+ * We only blink for mouse-driven activation: during tracking the menu
+ * panel is visible and _highlightedItemIndex matches `index`.  Key
+ * equivalents call this too (via performKeyEquivalent:), but then the menu
+ * is normally not visible, so the visibility/highlight checks below make
+ * the blink a no-op.
+ */
+- (void)eau_performActionForItemAtIndex:(NSInteger)index
+{
+  // Fire the action immediately; the blink is only visual feedback.
+  [self eau_performActionForItemAtIndex:index];
+
+  // Blink only while a menu is actively being tracked on screen.
+  if (_eau_activeTrackingCount <= 0) return;
+
+  // Blink only when the triggered item itself carries an action.  An item
+  // that merely has a submenu (and nothing else) uses the no-op
+  // submenuAction: that setSubmenu: installs (NSMenuItem.m:244), so it must
+  // not blink - only items whose own action will actually run get the
+  // feedback.  Items that have BOTH a submenu and a real action (e.g. a
+  // submenu-bearing entry that also performs something on click) do blink.
+  {
+    id item = [self itemAtIndex: index];
+    if (!item) return;
+    SEL action = [item action];
+
+    // Skip the blink for items that merely open a submenu: setSubmenu:
+    // installs the no-op submenuAction: on them.  Compare by NAME, not SEL
+    // pointer: the selector the item carries was registered by the host app,
+    // which may not be pointer-identical to our @selector(submenuAction:)
+    // even though the names match (selectors are not safely comparable
+    // across bundle boundaries on this runtime).
+    if (!action) return;
+    {
+      const char *actionName = sel_getName(action);
+      if (actionName && strcmp(actionName, "submenuAction:") == 0) return;
+    }
+  }
+
+  NSMenuView *view = (NSMenuView *)[self menuRepresentation];
+  if (!view || ![view isKindOfClass: objc_getClass("NSMenuView")]) return;
+
+  NSWindow *win = [view window];
+  if (!win || ![win isVisible]) return;
+
+  // Re-establish the highlight on the triggered item.
+  //
+  // For an item that ALSO has a submenu, GNUstep's _executeItemAtIndex:
+  // (Macintosh style) calls detachSubmenu BEFORE performActionForItemAtIndex:,
+  // and detachSubmenu clears the highlight (setHighlightedItemIndex: -1 in
+  // upstream NSMenuView.m).  So we must SET the highlight here rather than
+  // require it to still be set; otherwise submenu-bearing items would never
+  // blink.  After the blink we leave the item highlighted - _trackWithEvent:
+  // unhighlights it again (line 1936) so the end state is unchanged.
+
+  // Two blink cycles.  Each cycle unhighlights briefly, then restores the
+  // highlight, letting the run loop draw the intermediate states.
+  const int blinkCycles = 2;
+  const double blinkDuration = 0.06;
+  for (int cycle = 0; cycle < blinkCycles; cycle++)
+    {
+      [view setHighlightedItemIndex:-1];
+      [win display];
+      [[NSRunLoop currentRunLoop]
+        runUntilDate:[NSDate dateWithTimeIntervalSinceNow:blinkDuration]];
+
+      [view setHighlightedItemIndex:index];
+      [win display];
+      [[NSRunLoop currentRunLoop]
+        runUntilDate:[NSDate dateWithTimeIntervalSinceNow:blinkDuration]];
+    }
+}
+
 
 /**
  * Swizzled -close implementation.
@@ -660,6 +943,14 @@ static void initNSMenuSwizzling(void)
                       @selector(eau_displayTransient),
                       "displayTransient");
 
+  // Swizzle -performActionForItemAtIndex:
+  // Classic Mac OS (System 7) blink feedback: the triggered item blinks
+  // twice before the menu closes (the action fires immediately).
+  swizzleNSMenuMethod(menuClass,
+                      @selector(performActionForItemAtIndex:),
+                      @selector(eau_performActionForItemAtIndex:),
+                      "performActionForItemAtIndex:");
+
   // Swizzle -trackWithEvent: on NSMenuView to count active tracking
   // sessions and run cleanup when tracking ends.
   Class menuViewClass = objc_getClass("NSMenuView");
@@ -679,6 +970,29 @@ static void initNSMenuSwizzling(void)
   // menu windows to the bottom screen border. This catches ALL menu
   // positioning regardless of which code path is used.
   _eau_swizzleMenuWindowFrameMethods();
+
+  // Swizzle NSMenuPanel orderFrontRegardless to enforce the invariant that
+  // no new menu panel is ever shown on top of panels left open by an earlier
+  // interaction (only the new panel's own submenu chain stays open).  Every
+  // dropdown/submenu/popup display ends in orderFrontRegardless on the
+  // NSMenuPanel (_aWindow), so this is the single choke point for regular
+  // (non-transient) panels.
+  {
+    Class menuPanelClass = objc_getClass("NSMenuPanel");
+    if (menuPanelClass)
+      {
+        Method m = class_getInstanceMethod(menuPanelClass,
+                                           @selector(orderFrontRegardless));
+        if (m)
+          {
+            s_orig_menuPanelOrderFrontRegardless
+              = (void (*)(id, SEL))method_getImplementation(m);
+            method_setImplementation(m,
+              (IMP)s_eau_menuPanelOrderFrontRegardless);
+            NSDebugLog(@"Eau: Swizzled NSMenuPanel orderFrontRegardless for stale-panel close-ahead");
+          }
+      }
+  }
 
   // Swizzle nextEventMatchingMask:untilDate:inMode:dequeue: on NSApplication
   // to add scroll wheel support during menu tracking.

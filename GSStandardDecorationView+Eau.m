@@ -405,4 +405,45 @@ static void EAU_newNSWindowSetTitle(id self, SEL _cmd, NSString *title)
     }
 }
 
+// Original +offsets:forStyleMask: IMP saved before swizzling
+static IMP _originalGSStandardOffsets = NULL;
+
+// Swizzled +offsets:forStyleMask: implementation.
+// GNUstep's stock GSStandardWindowDecorationView reports a 1px frame border
+// on every side for titled windows, but the Gershwin window manager frames
+// clients flush (clientBorder 0 in compositor mode, _NET_FRAME_EXTENTS is
+// {0,0,titleHeight,0}).  That 1px disagreement between GNUstep's frame math
+// and the WM's real frame is why a saved window rect drifted by a pixel on
+// every open/close cycle.  Zero the side/bottom borders so GNUstep's offsets
+// match the WM's real frame exactly.
+static void EAU_newGSStandardOffsets(id self, SEL _cmd, float *l, float *r,
+                                     float *t, float *b, NSUInteger style)
+{
+  // Call the original (which sets the titlebar height for titled windows).
+  ((void (*)(id, SEL, float*, float*, float*, float*, NSUInteger))_originalGSStandardOffsets)
+    (self, _cmd, l, r, t, b, style);
+
+  // Keep the titlebar height (top offset) from the theme; drop the 1px
+  // border on the other three sides to match the WM's clientBorder of 0.
+  *l = 0.0;
+  *r = 0.0;
+  *b = 0.0;
+}
+
++ (void) EAUswizzleGSStandardOffsets
+{
+  static BOOL swizzled = NO;
+  if (swizzled) return;
+  swizzled = YES;
+
+  // offsets:forStyleMask: is a CLASS method; swizzle the metaclass method.
+  Method origMethod = class_getClassMethod([GSStandardWindowDecorationView class],
+                                           @selector(offsets:forStyleMask:));
+  if (origMethod)
+    {
+      _originalGSStandardOffsets = method_getImplementation(origMethod);
+      method_setImplementation(origMethod, (IMP)EAU_newGSStandardOffsets);
+    }
+}
+
 @end

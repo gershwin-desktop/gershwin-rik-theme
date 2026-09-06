@@ -104,6 +104,7 @@ static void eauAlertSetStopping(id panel, BOOL val)
     [icoButton setAutoresizingMask: NSViewMaxXMargin | NSViewMinYMargin];
     [icoButton setBordered: NO];
     [icoButton setEnabled: NO];
+    [icoButton setTitle: @""];   // Never show the default "Button" text
     [[icoButton cell] setImageDimsWhenDisabled: NO];
     [[icoButton cell] setImageScaling: NSImageScaleProportionallyUpOrDown];
     [icoButton setImagePosition: NSImageOnly];
@@ -150,7 +151,10 @@ static void eauAlertSetStopping(id panel, BOOL val)
     } @catch (NSException *e) {
         // NSLog(@"Eau: Exception loading button images: %@", e);
     }
-    [defButton setFont: titleFont];  // Mark as default with bold font
+    /* Only the headline is bold; buttons always use the regular font.  The
+     * default button is still marked as such by cell/button-behavior, not by
+     * its font weight. */
+    [defButton setFont: METRICS_FONT_SYSTEM_REGULAR_13];
     
     altButton = [self _makeButtonWithRect: NSZeroRect tag: NSAlertAlternateReturn];
     othButton = [self _makeButtonWithRect: NSZeroRect tag: NSAlertOtherReturn];
@@ -278,6 +282,19 @@ static void eauAlertSetStopping(id panel, BOOL val)
 
     // In ARC, ivars are automatically released when the object is deallocated
     // We don't need to explicitly release them, but we can set them to nil for safety
+#if !__has_feature(objc_arc)
+    /* Non-ARC builds (the Tests/ unit-test tool links this file directly)
+       own the controls through their alloc/init here, so they must be
+       released and NSWindow's dealloc must run; under ARC both happen
+       implicitly when the ivar is zeroed. */
+    [defButton release];
+    [altButton release];
+    [othButton release];
+    [icoButton release];
+    [titleField release];
+    [messageField release];
+    [scroll release];
+#endif
     defButton = nil;
     altButton = nil;
     othButton = nil;
@@ -285,6 +302,9 @@ static void eauAlertSetStopping(id panel, BOOL val)
     titleField = nil;
     messageField = nil;
     scroll = nil;
+#if !__has_feature(objc_arc)
+    [super dealloc];
+#endif
     
     // NSLog(@"Eau: EauAlertPanel dealloc cleaning up completed");
     // In ARC, [super dealloc] is NOT called - it happens automatically
@@ -333,7 +353,7 @@ static void eauAlertSetStopping(id panel, BOOL val)
     bounds = [NSWindow contentRectForFrameRect: bounds styleMask: mask];
     ssize = bounds.size;
     ssize.width = METRICS_SIZE_SCALE * ssize.width;
-    ssize.height = METRICS_SIZE_SCALE * ssize.height;
+    ssize.height = METRICS_SIZE_SCALE_HEIGHT * ssize.height;
     
     // Start with minimum width
     wsize.width = METRICS_WIN_MIN_WIDTH;
@@ -501,15 +521,26 @@ static void eauAlertSetStopping(id panel, BOOL val)
             if (!useControl(scroll))
                 [content addSubview: scroll];
             
-            [messageField removeFromSuperview];
+            /* Clear the clip view's document pointer FIRST: NSClipView
+               setDocumentView: early-returns when handed the same pointer,
+               so re-attaching after removeFromSuperview would be a silent
+               no-op and leave the scrolled variant empty on the second
+               sizePanelToFit pass (runModal always lays out twice). */
+            if ([scroll documentView] != nil)
+                [scroll setDocumentView: nil];
             width = [NSScrollView contentSizeForFrameSize: srect.size
                                     hasHorizontalScroller: NO
                                       hasVerticalScroller: YES
                                                borderType: [scroll borderType]].width;
             mrect.origin = NSZeroPoint;
-            mrect.size = [[messageField attributedStringValue]
-                          boundingRectWithSize: NSMakeSize(width, 1e6)
-                          options: NSStringDrawingUsesLineFragmentOrigin].size;
+            /* Fill the clip content width rather than hugging the longest
+               line, so the scrolled variant reads as a proper text area;
+               only the height comes from the measurement. */
+            mrect.size.width = width;
+            mrect.size.height =
+                [[messageField attributedStringValue]
+                 boundingRectWithSize: NSMakeSize(width, 1e6)
+                 options: NSStringDrawingUsesLineFragmentOrigin].size.height;
             [messageField setFrame: mrect];
             [scroll setDocumentView: messageField];
         }
@@ -573,10 +604,17 @@ static void eauAlertSetStopping(id panel, BOOL val)
     // Defer stopping the modal to the next run loop iteration.
     // We use performSelector with specific modes because dispatch_async to the
     // main queue may not execute while the run loop is in NSModalPanelRunLoopMode.
+    // NSEventTrackingRunLoopMode must be included: only the scrolled variant
+    // has a live scroller, and a stop requested while its thumb is being
+    // dragged would otherwise wait until that tracking loop ends - which, in
+    // an app that hangs mid-drag, is forever, leaving the dialog uncloseable.
     [self performSelector: @selector(_stopModalDeferred)
                withObject: nil
                afterDelay: 0.0
-                  inModes: [NSArray arrayWithObjects: NSDefaultRunLoopMode, NSModalPanelRunLoopMode, nil]];
+                  inModes: [NSArray arrayWithObjects: NSDefaultRunLoopMode,
+                                                      NSModalPanelRunLoopMode,
+                                                      NSEventTrackingRunLoopMode,
+                                                      nil]];
 
     // NSLog(@"Eau: buttonAction scheduled deferred modal stop");
 }
@@ -608,9 +646,30 @@ static void eauAlertSetStopping(id panel, BOOL val)
     return [NSApp modalWindow] == self;
 }
 
+/* The titlebar close button must always be able to dismiss the dialog,
+ * including the scrolled long-text variant while a wedged app is stuck in
+ * scroller event tracking: ending the modal session here does not depend on
+ * the WillClose observer or on buttonAction having been reached. */
+- (BOOL) windowShouldClose: (id)sender
+{
+    @try {
+        if ([NSApp modalWindow] == self)
+            [NSApp abortModal];
+    }
+    @catch (id ex) {}
+    return YES;
+}
+
 - (NSInteger) runModal
 {
-    // NSLog(@"Eau: EauAlertPanel runModal called");
+    /* Print the full dialog text (title and message) so CI logs show exactly
+     * why a modal alert is up; the test suite treats an unhandled modal as a
+     * failure, so the reason must be greppable from the log. */
+    {
+        NSString *ttl = titleField ? [titleField stringValue] : @"";
+        NSString *msg = messageField ? [messageField stringValue] : @"";
+        NSLog(@"Eau: EauAlertPanel runModal — title=\"%@\" message=\"%@\"", ttl, msg);
+    }
     
     // Beep when alert is displayed (diagnostics)
     NSApplication *app = [NSApplication sharedApplication];
@@ -623,6 +682,15 @@ static void eauAlertSetStopping(id panel, BOOL val)
     }
     
     @try {
+        // Bail out if no text was set (initialized but unused panel)
+        NSString *title = titleField ? [[titleField stringValue] stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]] : @"";
+        NSString *msg = messageField ? [[messageField stringValue] stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]] : @"";
+        if (([title length] == 0) && ([msg length] == 0))
+          {
+            NSLog(@"Eau: EauAlertPanel runModal suppressed — title and message are empty/whitespace (probably a bug in the application)");
+            return NSAlertErrorReturn;
+          }
+
         if (isGreen)
         {
             // NSLog(@"Eau: EauAlertPanel calling sizePanelToFit");
@@ -643,6 +711,9 @@ static void eauAlertSetStopping(id panel, BOOL val)
         //       [self frame].origin.x, [self frame].origin.y,
         //       [self frame].size.width, [self frame].size.height);
     
+    // Float above all other windows (alert takes priority)
+    [self setLevel: NSScreenSaverWindowLevel];
+
     // Raise the window to ensure it gets input focus
     [NSApp activateIgnoringOtherApps: YES];
     [self orderFrontRegardless];
@@ -663,7 +734,11 @@ static void eauAlertSetStopping(id panel, BOOL val)
     __block id closeObs = [[NSNotificationCenter defaultCenter]
       addObserverForName: NSWindowWillCloseNotification
       object: self queue: nil usingBlock: ^(NSNotification *note) {
-        [NSApp abortModal];
+        /* The close button must end the modal session even if the app is
+         * wedged; never let an exception here leave the dialog up. */
+        @try {
+          [NSApp abortModal];
+        } @catch (id ex) {}
       }];
     result = [NSApp runModalForWindow: self];
     [[NSNotificationCenter defaultCenter] removeObserver: closeObs];
@@ -982,6 +1057,12 @@ static void eauAlertSetStopping(id panel, BOOL val)
    before being moved to the correct center position by -center. */
 - (void) orderFrontRegardless
 {
+    /* Non-modal alert: print its text so CI logs show why it appeared. */
+    {
+        NSString *ttl = titleField ? [titleField stringValue] : @"";
+        NSString *msg = messageField ? [messageField stringValue] : @"";
+        NSLog(@"Eau: EauAlertPanel shown non-modally — title=\"%@\" message=\"%@\"", ttl, msg);
+    }
     [self center];
     [super orderFrontRegardless];
 }
@@ -994,6 +1075,28 @@ static void eauAlertSetStopping(id panel, BOOL val)
 - (BOOL) canBecomeMainWindow
 {
     return YES;
+}
+
+/* GSExceptionPanel calls setUserInfo: on the panel after morphing it to
+   EauAlertPanel via object_setClass().  Store the userInfo via an
+   associated object to avoid adding an ivar. */
+static const void *kEAUUserInfoKey = &kEAUUserInfoKey;
+
+- (void) setUserInfo: (NSDictionary *)userInfo
+{
+    objc_setAssociatedObject(self, kEAUUserInfoKey, userInfo,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (id) userInfo
+{
+    return objc_getAssociatedObject(self, kEAUUserInfoKey);
+}
+
+/* GSExceptionPanel calls userInfoPanel on the morphed panel to order it out. */
+- (id) userInfoPanel
+{
+    return self;
 }
 
 - (void) setTitleBar: (NSString *)titleBar
@@ -1015,6 +1118,8 @@ static void eauAlertSetStopping(id panel, BOOL val)
         [self setTitle: titleBar];
     
     // NSLog(@"Eau: Setting icon");
+    [icoButton setTitle: @""];   // Guard: never show the default "Button" text
+    [icoButton setImagePosition: NSImageOnly];
     if (icon != nil)
         [icoButton setImage: icon];
     
@@ -1416,7 +1521,9 @@ static void setKeyEquivalent(NSButton *button)
 // - Avoids KVC retain/release side effects on _window
 - (NSInteger) eau_runModal
 {
-    // NSLog(@"Eau: NSAlert eau_runModal called");
+    NSLog(@"Eau: NSAlert eau_runModal — messageText=\"%@\" informativeText=\"%@\"",
+          [self messageText], [self informativeText]);
+    NSLog(@"Eau: NSAlert caller stack: %@", [NSThread callStackSymbols]);
     @try {
 
     if (![NSThread isMainThread])
@@ -1428,6 +1535,16 @@ static void setKeyEquivalent(NSButton *button)
         return result;
     }
     
+    // Never show an alert that has no text (probably a bug in the app)
+    NSString *msgText = [[self messageText] stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *infoText = [[self informativeText] stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ((msgText == nil || [msgText length] == 0) &&
+        (infoText == nil || [infoText length] == 0))
+      {
+        NSLog(@"Eau: NSAlert suppressed — both messageText and informativeText are empty/whitespace (probably a bug in the application)");
+        return NSAlertErrorReturn;
+      }
+
     // Call _setupPanel - this invokes the Eau custom setup since methods were swizzled
     // After swizzling: _setupPanel -> eau_setupPanel code, eau_setupPanel -> original code
     [self performSelector: @selector(_setupPanel)];
@@ -1707,7 +1824,10 @@ static void setKeyEquivalent(NSButton *button)
             break;
     }
     
-    // NSLog(@"Eau: Setting up panel with title and buttons");
+    if (messageText == nil) {
+        NSLog(@"Eau: NSAlert with nil messageText (title will be \"Alert\") — informativeText=%@, self=%@",
+              informativeText, self);
+    }
     @try {
         [panel setTitleBar: title
                       icon: icon

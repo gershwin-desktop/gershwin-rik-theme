@@ -24,49 +24,49 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
 
 - (CGFloat)titlebarHeight
 {
-    return METRICS_TITLEBAR_HEIGHT;
+    return METRICS_TITLEBAR_HEIGHT_PX;
 }
 
 - (NSRect)closeButtonRectForTitlebarWidth:(CGFloat)width
 {
     if (EauTitleBarButtonStyleIsOrb()) {
-        CGFloat buttonY = (METRICS_TITLEBAR_HEIGHT - METRICS_TITLEBAR_ORB_BUTTON_SIZE) / 2.0;
-        return NSMakeRect(METRICS_TITLEBAR_ORB_PADDING_LEFT, buttonY,
-                          METRICS_TITLEBAR_ORB_BUTTON_SIZE, METRICS_TITLEBAR_ORB_BUTTON_SIZE);
+        CGFloat buttonY = (METRICS_TITLEBAR_HEIGHT_PX - METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX) / 2.0;
+        return NSMakeRect(METRICS_TITLEBAR_ORB_PADDING_LEFT_PX, buttonY,
+                          METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX, METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX);
     }
     // Close button at left edge, square (width == height)
-    return NSMakeRect(0, 0, METRICS_TITLEBAR_HEIGHT, METRICS_TITLEBAR_HEIGHT);
+    return NSMakeRect(0, 0, METRICS_TITLEBAR_HEIGHT_PX, METRICS_TITLEBAR_HEIGHT_PX);
 }
 
 - (NSRect)minimizeButtonRectForTitlebarWidth:(CGFloat)width
 {
     if (EauTitleBarButtonStyleIsOrb()) {
-        CGFloat buttonY = (METRICS_TITLEBAR_HEIGHT - METRICS_TITLEBAR_ORB_BUTTON_SIZE) / 2.0;
-        CGFloat x = METRICS_TITLEBAR_ORB_PADDING_LEFT + METRICS_TITLEBAR_ORB_BUTTON_SIZE + METRICS_TITLEBAR_ORB_BUTTON_SPACING;
+        CGFloat buttonY = (METRICS_TITLEBAR_HEIGHT_PX - METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX) / 2.0;
+        CGFloat x = METRICS_TITLEBAR_ORB_PADDING_LEFT_PX + METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX + METRICS_TITLEBAR_ORB_BUTTON_SPACING_PX;
         return NSMakeRect(x, buttonY,
-                          METRICS_TITLEBAR_ORB_BUTTON_SIZE, METRICS_TITLEBAR_ORB_BUTTON_SIZE);
+                          METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX, METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX);
     }
     // Minimize button - inner of two side-by-side square buttons on right
-    CGFloat x = width - 2 * METRICS_TITLEBAR_HEIGHT;
+    CGFloat x = width - 2 * METRICS_TITLEBAR_HEIGHT_PX;
     return NSMakeRect(x, 0,
-                      METRICS_TITLEBAR_HEIGHT,
-                      METRICS_TITLEBAR_HEIGHT);
+                      METRICS_TITLEBAR_HEIGHT_PX,
+                      METRICS_TITLEBAR_HEIGHT_PX);
 }
 
 - (NSRect)maximizeButtonRectForTitlebarWidth:(CGFloat)width
 {
     if (EauTitleBarButtonStyleIsOrb()) {
-        CGFloat buttonY = (METRICS_TITLEBAR_HEIGHT - METRICS_TITLEBAR_ORB_BUTTON_SIZE) / 2.0;
-        CGFloat x = METRICS_TITLEBAR_ORB_PADDING_LEFT
-                    + (METRICS_TITLEBAR_ORB_BUTTON_SIZE + METRICS_TITLEBAR_ORB_BUTTON_SPACING) * 2;
+        CGFloat buttonY = (METRICS_TITLEBAR_HEIGHT_PX - METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX) / 2.0;
+        CGFloat x = METRICS_TITLEBAR_ORB_PADDING_LEFT_PX
+                    + (METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX + METRICS_TITLEBAR_ORB_BUTTON_SPACING_PX) * 2;
         return NSMakeRect(x, buttonY,
-                          METRICS_TITLEBAR_ORB_BUTTON_SIZE, METRICS_TITLEBAR_ORB_BUTTON_SIZE);
+                          METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX, METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX);
     }
     // Maximize button - outer (rightmost) of two side-by-side square buttons on right
-    CGFloat x = width - METRICS_TITLEBAR_HEIGHT;
+    CGFloat x = width - METRICS_TITLEBAR_HEIGHT_PX;
     return NSMakeRect(x, 0,
-                      METRICS_TITLEBAR_HEIGHT,
-                      METRICS_TITLEBAR_HEIGHT);
+                      METRICS_TITLEBAR_HEIGHT_PX,
+                      METRICS_TITLEBAR_HEIGHT_PX);
 }
 
 - (NSRect)rightButtonRegionRectForTitlebarWidth:(CGFloat)width
@@ -74,8 +74,8 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
     if (EauTitleBarButtonStyleIsOrb()) {
         return NSZeroRect;
     }
-    return NSMakeRect(width - 2 * METRICS_TITLEBAR_HEIGHT, 0,
-                      2 * METRICS_TITLEBAR_HEIGHT, METRICS_TITLEBAR_HEIGHT);
+    return NSMakeRect(width - 2 * METRICS_TITLEBAR_HEIGHT_PX, 0,
+                      2 * METRICS_TITLEBAR_HEIGHT_PX, METRICS_TITLEBAR_HEIGHT_PX);
 }
 
 #pragma mark - Drawing Methods
@@ -91,13 +91,13 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
     NSRect titleRect;
     if (EauTitleBarButtonStyleIsOrb()) {
         // Orb style: all buttons on left, title area after orb region
-        titleRect = NSMakeRect(METRICS_TITLEBAR_ORB_REGION_WIDTH, 0,
-                               width - METRICS_TITLEBAR_ORB_REGION_WIDTH,
-                               METRICS_TITLEBAR_HEIGHT);
+        titleRect = NSMakeRect(METRICS_TITLEBAR_ORB_REGION_WIDTH_PX, 0,
+                               width - METRICS_TITLEBAR_ORB_REGION_WIDTH_PX,
+                               METRICS_TITLEBAR_HEIGHT_PX);
     } else {
         titleRect = NSMakeRect(NSMaxX(closeRect), 0,
                                NSMinX(rightRegion) - NSMaxX(closeRect),
-                               METRICS_TITLEBAR_HEIGHT);
+                               METRICS_TITLEBAR_HEIGHT_PX);
     }
 
     // Draw titlebar background gradient — lighter for inactive windows
@@ -134,7 +134,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
                      active:active
                     hovered:hovered];
         if (hovered) {
-            [self drawCloseIconInRect:NSInsetRect(rect, 3.0, 3.0)
+            [self drawCloseIconInRect:NSInsetRect(rect, (3.0 * GSWScaleFactor()), (3.0 * GSWScaleFactor()))
                             withColor:[self iconColorForActive:active highlighted:hovered]];
         }
         return;
@@ -146,7 +146,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
                        hovered:hovered];
     // Show icon on active, or when hovering this button on inactive
     if (active || hovered) {
-        [self drawCloseIconInRect:NSInsetRect(rect, METRICS_TITLEBAR_ICON_INSET, METRICS_TITLEBAR_ICON_INSET)
+        [self drawCloseIconInRect:NSInsetRect(rect, METRICS_TITLEBAR_ICON_INSET_PX, METRICS_TITLEBAR_ICON_INSET_PX)
                         withColor:[self iconColorForActive:active highlighted:hovered]];
     }
 }
@@ -160,7 +160,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
                      active:active
                     hovered:hovered];
         if (hovered) {
-            [self drawMinimizeIconInRect:NSInsetRect(rect, 3.0, 3.0)
+            [self drawMinimizeIconInRect:NSInsetRect(rect, (3.0 * GSWScaleFactor()), (3.0 * GSWScaleFactor()))
                                withColor:[self iconColorForActive:active highlighted:hovered]];
         }
         return;
@@ -172,7 +172,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
                        hovered:hovered];
     // Show icon on active, or when hovering this button on inactive
     if (active || hovered) {
-        [self drawMinimizeIconInRect:NSInsetRect(rect, METRICS_TITLEBAR_ICON_INSET, METRICS_TITLEBAR_ICON_INSET)
+        [self drawMinimizeIconInRect:NSInsetRect(rect, METRICS_TITLEBAR_ICON_INSET_PX, METRICS_TITLEBAR_ICON_INSET_PX)
                            withColor:[self iconColorForActive:active highlighted:hovered]];
     }
 }
@@ -186,7 +186,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
                      active:active
                     hovered:hovered];
         if (hovered) {
-            [self drawMaximizeIconInRect:NSInsetRect(rect, 3.0, 3.0)
+            [self drawMaximizeIconInRect:NSInsetRect(rect, (3.0 * GSWScaleFactor()), (3.0 * GSWScaleFactor()))
                                withColor:[self iconColorForActive:active highlighted:hovered]];
         }
         return;
@@ -198,7 +198,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
                        hovered:hovered];
     // Show icon on active, or when hovering this button on inactive
     if (active || hovered) {
-        [self drawMaximizeIconInRect:NSInsetRect(rect, METRICS_TITLEBAR_ICON_INSET, METRICS_TITLEBAR_ICON_INSET)
+        [self drawMaximizeIconInRect:NSInsetRect(rect, METRICS_TITLEBAR_ICON_INSET_PX, METRICS_TITLEBAR_ICON_INSET_PX)
                            withColor:[self iconColorForActive:active highlighted:hovered]];
     }
 }
@@ -216,7 +216,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
     }
 
     NSBezierPath *path = [NSBezierPath bezierPath];
-    [path setLineWidth:METRICS_TITLEBAR_ICON_STROKE];
+    [path setLineWidth:METRICS_TITLEBAR_ICON_STROKE_PX];
     [path setLineCapStyle:NSRoundLineCapStyle];
 
     // Lowercase x style - shorter strokes, more square
@@ -240,7 +240,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
     }
 
     NSBezierPath *path = [NSBezierPath bezierPath];
-    [path setLineWidth:METRICS_TITLEBAR_ICON_STROKE];
+    [path setLineWidth:METRICS_TITLEBAR_ICON_STROKE_PX];
     [path setLineCapStyle:NSRoundLineCapStyle];
 
     // Horizontal line (minus symbol)
@@ -263,7 +263,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
     }
 
     NSBezierPath *path = [NSBezierPath bezierPath];
-    [path setLineWidth:METRICS_TITLEBAR_ICON_STROKE];
+    [path setLineWidth:METRICS_TITLEBAR_ICON_STROKE_PX];
     [path setLineCapStyle:NSRoundLineCapStyle];
 
     // Plus symbol
@@ -300,7 +300,8 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
     }
 
     // Draw the 3D ball using the same approach as EauWindowButtonCell
-    NSRect frame = NSInsetRect(rect, 0.5, 0.5);
+    CGFloat sf = GSWScaleFactor();
+    NSRect frame = NSInsetRect(rect, 0.5 * sf, 0.5 * sf);
     float luminosity = hovered ? 0.3 : 0.5;
 
     NSColor *gradientDownColor1 = [color highlightWithLevel:luminosity];
@@ -328,12 +329,12 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
     // Outer stroke rings
     NSBezierPath *outerRing = [NSBezierPath bezierPathWithOvalInRect:frame];
     [gradientStroke drawInBezierPath:outerRing angle:90];
-    NSRect innerRingRect = NSInsetRect(frame, 0.5, 0.5);
+    NSRect innerRingRect = NSInsetRect(frame, 0.5 * sf, 0.5 * sf);
     NSBezierPath *innerRing = [NSBezierPath bezierPathWithOvalInRect:innerRingRect];
     [gradientStroke2 drawInBezierPath:innerRing angle:-90];
 
     // Base circle
-    NSRect baseRect = NSInsetRect(frame, 1.5, 1.5);
+    NSRect baseRect = NSInsetRect(frame, 1.5 * sf, 1.5 * sf);
     NSBezierPath *basePath = [NSBezierPath bezierPathWithOvalInRect:baseRect];
     CGFloat resizeRatio = MIN(NSWidth(baseRect) / 13.0, NSHeight(baseRect) / 13.0);
     [NSGraphicsContext saveGraphicsState];
@@ -441,32 +442,32 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
 
     // Stroke border
     [borderColor setStroke];
-    [path setLineWidth:1.0];
+    [path setLineWidth:(1.0 * GSWScaleFactor())];
     [path stroke];
 
     // Draw top border line (replicates titlebar top edge on buttons)
     NSBezierPath *topLine = [NSBezierPath bezierPath];
-    CGFloat radius = METRICS_TITLEBAR_BUTTON_INNER_RADIUS;
+    CGFloat radius = METRICS_TITLEBAR_BUTTON_INNER_RADIUS_PX;
     if (position == EauTitleBarButtonPositionLeft) {
         // Close button: line from after top-left arc to right edge
         [topLine moveToPoint:NSMakePoint(NSMinX(rect) + radius, NSMaxY(rect) - 0.5)];
         [topLine lineToPoint:NSMakePoint(NSMaxX(rect), NSMaxY(rect) - 0.5)];
         [topBorderColor setStroke];
-        [topLine setLineWidth:1.0];
+        [topLine setLineWidth:(1.0 * GSWScaleFactor())];
         [topLine stroke];
     } else if (position == EauTitleBarButtonPositionRightOuter) {
         // Maximize button (right outer): line from left edge to before top-right arc
         [topLine moveToPoint:NSMakePoint(NSMinX(rect), NSMaxY(rect) - 0.5)];
         [topLine lineToPoint:NSMakePoint(NSMaxX(rect) - radius, NSMaxY(rect) - 0.5)];
         [topBorderColor setStroke];
-        [topLine setLineWidth:1.0];
+        [topLine setLineWidth:(1.0 * GSWScaleFactor())];
         [topLine stroke];
     } else if (position == EauTitleBarButtonPositionRightInner) {
         // Minimize button (right inner): full width top border line, no arc
         [topLine moveToPoint:NSMakePoint(NSMinX(rect), NSMaxY(rect) - 0.5)];
         [topLine lineToPoint:NSMakePoint(NSMaxX(rect), NSMaxY(rect) - 0.5)];
         [topBorderColor setStroke];
-        [topLine setLineWidth:1.0];
+        [topLine setLineWidth:(1.0 * GSWScaleFactor())];
         [topLine stroke];
     }
 
@@ -479,7 +480,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
         NSBezierPath *leftEdge = [NSBezierPath bezierPath];
         [leftEdge moveToPoint:NSMakePoint(0.5, NSMinY(rect))];
         [leftEdge lineToPoint:NSMakePoint(0.5, NSMaxY(rect))];
-        [leftEdge setLineWidth:1.0];
+        [leftEdge setLineWidth:(1.0 * GSWScaleFactor())];
         [leftEdge stroke];
     }
 
@@ -488,14 +489,14 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
         NSBezierPath *rightEdge = [NSBezierPath bezierPath];
         [rightEdge moveToPoint:NSMakePoint(NSMaxX(rect) - 0.5, NSMinY(rect))];
         [rightEdge lineToPoint:NSMakePoint(NSMaxX(rect) - 0.5, NSMaxY(rect))];
-        [rightEdge setLineWidth:1.0];
+        [rightEdge setLineWidth:(1.0 * GSWScaleFactor())];
         [rightEdge stroke];
     }
 }
 
 - (NSBezierPath *)buttonPathForRect:(NSRect)frame position:(EauTitleBarButtonPosition)position
 {
-    CGFloat radius = METRICS_TITLEBAR_BUTTON_INNER_RADIUS;
+    CGFloat radius = METRICS_TITLEBAR_BUTTON_INNER_RADIUS_PX;
     NSBezierPath *path = [NSBezierPath bezierPath];
 
     switch (position) {
@@ -558,7 +559,7 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
     static NSParagraphStyle *centerStyle = nil;
 
     if (!titleFont) {
-        titleFont = [NSFont systemFontOfSize:0];
+        titleFont = [NSFont systemFontOfSize:(13.0 * GSWScaleFactor())];
         activeColor = [NSColor colorWithCalibratedRed:0.05 green:0.05 blue:0.05 alpha:1];
         inactiveColor = [NSColor colorWithCalibratedRed:0.75 green:0.75 blue:0.75 alpha:1];
 
@@ -587,8 +588,9 @@ BOOL EauTitleBarButtonStyleIsOrb(void)
 
     // Create paragraph style with appropriate truncation
     NSMutableParagraphStyle *p = [centerStyle mutableCopy];
-    if (leftGap < 24.0 || rightGap < 24.0) {
-        // Use middle ellipsis when gap to nearest button is less than 24px
+    CGFloat minGap = 24.0 * GSWScaleFactor();
+    if (leftGap < minGap || rightGap < minGap) {
+        // Use middle ellipsis when gap to nearest button is less than 24px (scaled)
         [p setLineBreakMode:NSLineBreakByTruncatingMiddle];
     } else {
         // No truncation needed when there's enough breathing room

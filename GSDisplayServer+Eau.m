@@ -287,6 +287,15 @@ static void EAUEnsureWindowStates(Display *dpy,
       Window xwin = (Window)(uintptr_t)[self windowDevice: win];
       if (dpy != NULL && xwin != 0)
         {
+          Atom wmType = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
+          Atom dialogType = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+          if (wmType != None && dialogType != None)
+            {
+              XChangeProperty(dpy, xwin, wmType, XA_ATOM, 32,
+                              PropModeReplace,
+                              (unsigned char *)&dialogType, 1);
+            }
+
           Atom skipTaskbar;
           Atom skipPager;
           Atom modal;

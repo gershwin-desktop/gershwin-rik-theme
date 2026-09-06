@@ -141,6 +141,188 @@ NSString * const kEauPulseProgressKey = @"kEauPulseProgressKey";
 {
   [self _drawRoundedBezel: cellFrame withColor: backgroundColor inCell: nil];
 }
+
+/* Build a rounded-rect path with an independent radius per corner, so a
+ * button can keep its outer corners rounded while squaring the side that
+ * touches a neighbour in a button bar. */
+- (NSBezierPath *) _eau_roundedPath: (NSRect)frame
+                            topLeft: (CGFloat)tl
+                           topRight: (CGFloat)tr
+                          bottomLeft: (CGFloat)bl
+                         bottomRight: (CGFloat)br
+{
+  frame = NSInsetRect(frame, 0.5, 0.5);
+  CGFloat maxR = MIN(NSWidth(frame), NSHeight(frame)) / 2.0;
+  tl = MAX(0.0, MIN(tl, maxR));
+  tr = MAX(0.0, MIN(tr, maxR));
+  bl = MAX(0.0, MIN(bl, maxR));
+  br = MAX(0.0, MIN(br, maxR));
+
+  NSBezierPath *path = [NSBezierPath bezierPath];
+  [path moveToPoint: NSMakePoint(NSMinX(frame) + tl, NSMaxY(frame))];
+  if (tr > 0)
+    [path appendBezierPathWithArcWithCenter: NSMakePoint(NSMaxX(frame) - tr,
+                                                         NSMaxY(frame) - tr)
+                                       radius: tr startAngle: 90 endAngle: 0
+                                    clockwise: YES];
+  else
+    [path lineToPoint: NSMakePoint(NSMaxX(frame), NSMaxY(frame))];
+  [path lineToPoint: NSMakePoint(NSMaxX(frame), NSMinY(frame) + br)];
+  if (br > 0)
+    [path appendBezierPathWithArcWithCenter: NSMakePoint(NSMaxX(frame) - br,
+                                                         NSMinY(frame) + br)
+                                       radius: br startAngle: 0 endAngle: -90
+                                    clockwise: YES];
+  else
+    [path lineToPoint: NSMakePoint(NSMaxX(frame), NSMinY(frame))];
+  [path lineToPoint: NSMakePoint(NSMinX(frame) + bl, NSMinY(frame))];
+  if (bl > 0)
+    [path appendBezierPathWithArcWithCenter: NSMakePoint(NSMinX(frame) + bl,
+                                                         NSMinY(frame) + bl)
+                                       radius: bl startAngle: -90 endAngle: -180
+                                    clockwise: YES];
+  else
+    [path lineToPoint: NSMakePoint(NSMinX(frame), NSMinY(frame))];
+  [path lineToPoint: NSMakePoint(NSMinX(frame), NSMaxY(frame) - tl)];
+  if (tl > 0)
+    [path appendBezierPathWithArcWithCenter: NSMakePoint(NSMinX(frame) + tl,
+                                                         NSMaxY(frame) - tl)
+                                       radius: tl startAngle: 180 endAngle: 90
+                                    clockwise: YES];
+  else
+    [path lineToPoint: NSMakePoint(NSMinX(frame), NSMaxY(frame))];
+  [path closePath];
+  return path;
+}
+
+- (void) _drawRoundBezel: (NSRect)cellFrame
+                 withColor: (NSColor *)backgroundColor
+                  topLeft: (CGFloat)tl
+                 topRight: (CGFloat)tr
+                bottomLeft: (CGFloat)bl
+               bottomRight: (CGFloat)br
+{
+  NSColor *strokeColorButton = [Eau controlStrokeColor];
+  NSGradient *buttonBackgroundGradient = [self _bezelGradientWithColor: backgroundColor];
+  NSBezierPath *path = [self _eau_roundedPath: cellFrame
+                                     topLeft: tl topRight: tr
+                                   bottomLeft: bl bottomRight: br];
+  [buttonBackgroundGradient drawInBezierPath: path angle: -90];
+
+  /* Stroke the outline, but only once per touching edge: a squared left or
+   * right corner means the button touches a neighbour in the bar, so that
+   * vertical edge must not be stroked here - the neighbour draws the single
+   * divider.  The top and bottom edges are always stroked, and rounded
+   * corners keep their arc.  When a corner is squared we simply omit the
+   * straight vertical segment instead of closing the path there, so the seam
+   * between two adjacent buttons ends up as exactly one line. */
+  BOOL drawLeft = (tl > 0.0) || (bl > 0.0);
+  NSRect f = NSInsetRect(cellFrame, 0.5, 0.5);
+  CGFloat minX = NSMinX(f), maxX = NSMaxX(f), minY = NSMinY(f), maxY = NSMaxY(f);
+  NSBezierPath *sp = [NSBezierPath bezierPath];
+  if (tl > 0.0)
+    [sp moveToPoint: NSMakePoint(minX + tl, maxY)];
+  else
+    [sp moveToPoint: NSMakePoint(minX, maxY)];
+  [sp lineToPoint: NSMakePoint(maxX - tr, maxY)];
+  if (tr > 0.0)
+    [sp appendBezierPathWithArcWithCenter: NSMakePoint(maxX - tr, maxY - tr)
+                                    radius: tr startAngle: 90 endAngle: 0
+                                 clockwise: YES];
+  else
+    [sp lineToPoint: NSMakePoint(maxX, maxY)];
+  [sp lineToPoint: NSMakePoint(maxX, minY + br)];
+  if (br > 0.0)
+    [sp appendBezierPathWithArcWithCenter: NSMakePoint(maxX - br, minY + br)
+                                    radius: br startAngle: 0 endAngle: -90
+                                 clockwise: YES];
+  else
+    [sp lineToPoint: NSMakePoint(maxX, minY)];
+  [sp lineToPoint: NSMakePoint(minX + bl, minY)];
+  if (bl > 0.0)
+    [sp appendBezierPathWithArcWithCenter: NSMakePoint(minX + bl, minY + bl)
+                                    radius: bl startAngle: -90 endAngle: -180
+                                 clockwise: YES];
+  else
+    [sp lineToPoint: NSMakePoint(minX, minY)];
+  if (drawLeft)
+    {
+      [sp lineToPoint: NSMakePoint(minX, maxY - tl)];
+      if (tl > 0.0)
+        [sp appendBezierPathWithArcWithCenter: NSMakePoint(minX + tl, maxY - tl)
+                                        radius: tl startAngle: 180 endAngle: 90
+                                     clockwise: YES];
+    }
+  [strokeColorButton setStroke];
+  [sp setLineWidth: 1];
+  [sp stroke];
+}
+
+/* Default rounded radius for a frame: a pill when short, else slightly
+ * rounded.  Mirrors _drawRoundedBezel:withColor:inCell:. */
+- (CGFloat) _eau_radiusForFrame: (NSRect)frame
+{
+  if (frame.size.height <= 25.0)
+    return MIN(frame.size.width, frame.size.height) / 2.0;
+  return 4;
+}
+
+/* Square a button's left/right corners when it visually touches or overlaps
+ * another button on that side, i.e. a horizontal button bar.  Only other
+ * buttons count, and only same-row neighbours (vertical overlap), so a button
+ * beside a text field or on a different row stays fully rounded. */
+- (void) _eau_adjacencyRadiiForView: (NSView *)view
+                          baseRadius: (CGFloat)r
+                          leftRadius: (CGFloat *)leftR
+                         rightRadius: (CGFloat *)rightR
+{
+  *leftR = r;
+  *rightR = r;
+  if (view == nil)
+    return;
+  NSView *superview = [view superview];
+  if (superview == nil)
+    return;
+  NSRect myFrame = [view frame];
+  CGFloat eps = 1.5;
+  for (NSView *sib in [superview subviews])
+    {
+      if (sib == view)
+        continue;
+      BOOL isButton = [sib isKindOfClass: [NSButton class]];
+      if (!isButton && [sib respondsToSelector: @selector(cell)])
+        {
+          id c = [(id)sib cell];
+          if ([c isKindOfClass: [NSButtonCell class]])
+            isButton = YES;
+        }
+      if (!isButton)
+        continue;
+      NSRect sf = [sib frame];
+      if (NSMaxY(sf) <= NSMinY(myFrame) + eps
+          || NSMinY(sf) >= NSMaxY(myFrame) - eps)
+        continue;
+      if (fabs(NSMaxX(sf) - NSMinX(myFrame)) <= eps)
+        *leftR = 0;
+      if (fabs(NSMinX(sf) - NSMaxX(myFrame)) <= eps)
+        *rightR = 0;
+    }
+}
+
+/* Draw a rounded bezel, squaring the left/right corners that touch another
+ * button. */
+- (void) _eau_drawRoundBezel: (NSRect)frame
+                    withColor: (NSColor *)color
+                        radius: (CGFloat)r
+                          view: (NSView *)view
+{
+  CGFloat leftR = r, rightR = r;
+  [self _eau_adjacencyRadiiForView: view baseRadius: r
+                         leftRadius: &leftR rightRadius: &rightR];
+  [self _drawRoundBezel: frame withColor: color
+                topLeft: leftR topRight: rightR
+              bottomLeft: leftR bottomRight: rightR];
+}
 - (void) _drawRoundedBezel: (NSRect)cellFrame withColor: (NSColor*)backgroundColor inCell: (NSCell*)cell
 {
   float r;
@@ -167,15 +349,12 @@ NSString * const kEauPulseProgressKey = @"kEauPulseProgressKey";
 - (NSRect) drawButton: (NSRect)border withClip: (NSRect)clip
 {
   NSColor * c = [NSColor controlBackgroundColor];
+  CGFloat r;
   if (border.size.height <= 25.0)
-    {
-      float r = MIN(border.size.width, border.size.height) / 2.0;
-      [self _drawRoundBezel: border withColor: c andRadius: r];
-    }
+    r = MIN(border.size.width, border.size.height) / 2.0;
   else
-    {
-      [self _drawRoundBezel: border withColor: c];
-    }
+    r = 4;
+  [self _eau_drawRoundBezel: border withColor: c radius: r view: [NSView focusView]];
   return border;
 }
 
@@ -260,17 +439,19 @@ NSString * const kEauPulseProgressKey = @"kEauPulseProgressKey";
     {
       case NSRoundRectBezelStyle:
         if ([cell isKindOfClass: [NSPopUpButtonCell class]])
-          [self _drawRoundBezel: frame withColor: color];
+          [self _eau_drawRoundBezel: frame withColor: color radius: 4 view: view];
         else
-          [self _drawRoundedBezel: frame withColor: color inCell: cell];
+          [self _eau_drawRoundBezel: frame withColor: color
+                              radius: [self _eau_radiusForFrame: frame] view: view];
         break;
       case NSTexturedRoundedBezelStyle:
       case NSRoundedBezelStyle:
       case 0:
         if ([cell isKindOfClass: [NSPopUpButtonCell class]])
-          [self _drawRoundBezel: frame withColor: color];
+          [self _eau_drawRoundBezel: frame withColor: color radius: 4 view: view];
         else
-          [self _drawRoundedBezel: frame withColor: color inCell: cell];
+          [self _eau_drawRoundBezel: frame withColor: color
+                              radius: [self _eau_radiusForFrame: frame] view: view];
         break;
       case NSTexturedSquareBezelStyle:
         frame = NSInsetRect(frame, 0, 1);
@@ -317,10 +498,10 @@ NSString * const kEauPulseProgressKey = @"kEauPulseProgressKey";
       case NSDisclosureBezelStyle:
       case NSRoundedDisclosureBezelStyle:
       case NSRecessedBezelStyle:
-        [self _drawRoundBezel: frame withColor: color];
+        [self _eau_drawRoundBezel: frame withColor: color radius: 4 view: view];
         break;
       default:
-        [self _drawRoundBezel: frame withColor: color];
+        [self _eau_drawRoundBezel: frame withColor: color radius: 4 view: view];
     }
 }
 

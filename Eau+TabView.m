@@ -1,9 +1,17 @@
 #import "Eau.h"
 #import "Eau+Drawings.h"
+#import <objc/runtime.h>
 
 // Forward declare private GSTheme method to avoid compiler warnings
 @interface GSTheme (PrivateTabMethods)
 - (void) drawTabFillInRect: (NSRect)aRect forPart: (GSTabPart)part type: (NSTabViewType)type;
+@end
+
+// Enabled state for tab items; GNUstep lacks it.  Default YES so existing
+// apps are unaffected.  Implemented at the end of this file.
+@interface NSTabViewItem (EauEnabled)
+- (void)setEnabled:(BOOL)flag;
+- (BOOL)isEnabled;
 @end
 
 @interface Eau(EauTabView)
@@ -167,9 +175,31 @@
           else
             NSLog(@"Not finished yet. Luff ya.\n");
 
-          // Label
-          [anItem drawLabel: truncate inRect: r];
-          
+          // Label: a disabled tab must differ from an enabled one ONLY by
+          // color. So we replicate GNUstep's exact label layout
+          // (systemFontOfSize:11, centered on NSMidX/NSMidY) and swap
+          // controlTextColor for the disabled shade. This keeps the font and
+          // the positioning bit-for-bit identical to the enabled path below,
+          // which calls -[NSTabViewItem drawLabel:inRect:].
+          if ([anItem respondsToSelector: @selector(isEnabled)] &&
+              ![anItem isEnabled])
+            {
+              NSString *text = [anItem label];
+              NSDictionary *attrs = @{
+                NSFontAttributeName : [NSFont systemFontOfSize: 11],
+                NSForegroundColorAttributeName :
+                  [NSColor disabledControlTextColor]
+              };
+              NSSize titleSize = [text sizeWithAttributes: attrs];
+              NSPoint p = NSMakePoint(NSMidX(r) - titleSize.width / 2.0,
+                                      NSMidY(r) - titleSize.height / 2.0);
+              [text drawAtPoint: p withAttributes: attrs];
+            }
+          else
+            {
+              [anItem drawLabel: truncate inRect: r];
+            }
+
           iP.x += s.width;
           previousState = itemState;
 
@@ -232,4 +262,21 @@
   DPSgrestore(ctxt);
 }
 
+@end
+
+// GNUstep's NSTabViewItem has no enabled state, which Disk Utility needs to
+// disable tabs whose operation is unavailable for the current selection.
+// Default is enabled so existing apps are unaffected.
+@implementation NSTabViewItem (EauEnabled)
+static const char kEauTabEnabledKey;
+- (void)setEnabled:(BOOL)flag
+{
+  objc_setAssociatedObject(self, &kEauTabEnabledKey, @(flag),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+- (BOOL)isEnabled
+{
+  NSNumber *flag = objc_getAssociatedObject(self, &kEauTabEnabledKey);
+  return flag != nil ? [flag boolValue] : YES;
+}
 @end

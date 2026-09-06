@@ -1,5 +1,7 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
+
 PACKAGE_NAME = Eau
 BUNDLE_NAME = Eau
 BUNDLE_EXTENSION = .theme
@@ -20,6 +22,7 @@ Eau_OBJC_FILES = \
 		Eau+Menu.m\
 		Eau+Slider.m\
 		Eau+ProgressIndicator.m\
+		EauProgressView.m\
 		Eau+Scroller.m\
 		Eau+ColorWell.m\
 		Eau+Stepper.m\
@@ -46,20 +49,26 @@ Eau_OBJC_FILES = \
 		EauScrollerArrowCell.m\
 		NSAlert+Eau.m\
 		NSBrowserCell+Eau.m\
+		NSSearchField+Eau.m\
 		NSSearchFieldCell+Eau.m\
 		NSBeep+Eau.m\
+		EauSound.m\
 		GWDialog+Eau.m\
 		NSCell+Eau.m\
 		NSButtonCell+Eau.m\
 		NSButton+Eau.m\
 		NSTextFieldCell+Eau.m\
+		NSTextView+Eau.m\
 		NSFont+Eau.m\
 		NSMenuItemCell+Eau.m\
 		NSMenuView+Eau.m\
 		NSMenu+Eau.m\
 		NSBox+Eau.m\
 		NSPopUpButton+Eau.m\
+		NSComboBox+Eau.m\
+		NSProgressIndicator+Eau.m\
 		GSDisplayServer+Eau.m
+
 ADDITIONAL_TOOL_LIBS =
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-arc-exceptions
 ADDITIONAL_LDFLAGS += -lX11

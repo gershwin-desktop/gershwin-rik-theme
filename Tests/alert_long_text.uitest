@@ -1,0 +1,34 @@
+#!/usr/bin/env run_uitest
+# Long-text alert contract of the Eau theme, end to end.
+#
+# Launches the alerttest app (built by Test/GNUmakefile into
+# /System/Library/CoreServices/Applications), which first shows a SHORT
+# error alert and then a LONG
+# error alert (200 stderr lines).  The script proves that:
+#
+#   - the short alert shows its headline and body text,
+#   - the long alert shows the COMPLETE text - first AND last line -
+#     inside the theme's scrollable alert variant,
+#   - both alerts dismiss via their OK button.
+#
+# Run with: run_uitest Tests/alert_long_text.uitest
+# (build + install the app first: make -C Test && make -C Test install)
+launch application "alerttest"
+
+# --- short error alert ---
+wait until button "OK" timeout 30s
+assert text contains "Short Error"
+assert text contains "This test tests the short alert layout."
+click button "OK"
+
+# --- long error alert ---
+wait 500ms
+wait until button "OK" timeout 30s
+assert text contains "Long Error"
+assert text contains "stderr line 001"
+assert text contains "stderr line 200"
+click button "OK"
+
+# everything dismissed, app quits by itself
+wait until not exists button "OK" timeout 10s
+log "short and long error alerts shown and dismissed"

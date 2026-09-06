@@ -39,6 +39,10 @@
 {
   return 22; // Menus and menu items shall be 22px high
 }
+
+/* Maximum size for the icon shown in front of a menu item (the image column,
+   used for application and preference-pane icons).  Icons are scaled down to
+   fit this box, never up, so a large app bundle icon renders small. */
 - (CGFloat) menuSeparatorHeight
 {
   return 1.0;
@@ -67,6 +71,42 @@
 - (CGFloat) menuItemRightBorderOffset
 {
   return EAU_MENU_ITEM_PADDING / 2.0;
+}
+
+// Draw title for menu item cell. When the menu item has an image and
+// an empty title, draws the image centered in the title rect.
+- (void) drawTitleForMenuItemCell: (NSMenuItemCell *)cell
+                        withFrame: (NSRect)cellFrame
+                           inView: (NSView *)controlView
+                            state: (GSThemeControlState)state
+                     isHorizontal: (BOOL)isHorizontal
+{
+  NSMenuItem *item = [cell menuItem];
+  NSImage *image = [item image];
+  NSString *title = [item title];
+  if (image && (!title || [title length] == 0))
+    {
+      NSRect titleRect = [cell titleRectForBounds: cellFrame];
+      NSSize imgSize = [image size];
+      CGFloat scale = MIN(titleRect.size.width / imgSize.width,
+                          titleRect.size.height / imgSize.height);
+      if (scale > 1.0) scale = 1.0;
+      NSSize drawSize = NSMakeSize(imgSize.width * scale,
+                                   imgSize.height * scale);
+      NSPoint drawPoint = NSMakePoint(NSMidX(titleRect) - drawSize.width / 2,
+                                      NSMidY(titleRect) - drawSize.height / 2);
+      [image drawInRect: NSMakeRect(drawPoint.x, drawPoint.y,
+                                    drawSize.width, drawSize.height)
+               fromRect: NSZeroRect
+              operation: NSCompositeSourceOver
+               fraction: 1.0];
+      return;
+    }
+  [super drawTitleForMenuItemCell: cell
+                       withFrame: cellFrame
+                          inView: controlView
+                           state: state
+                    isHorizontal: isHorizontal];
 }
 
 - (void) drawMenuRect: (NSRect)rect

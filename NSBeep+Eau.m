@@ -9,6 +9,7 @@
 
 #import <AppKit/AppKit.h>
 #import "Eau.h"
+#import "EauSound.h"
 
 @implementation NSApplication (EauBeep)
 
@@ -40,46 +41,15 @@
         NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:prefsPath];
 
         if (prefs) {
-            NSDebugLog(@"Loaded prefs");
             NSString *alertSoundName = [prefs objectForKey:@"alertSound"];
-            NSNumber *alertVolume = [prefs objectForKey:@"alertVolume"];
 
             if (alertSoundName) {
                 NSDebugLog(@"alertSound: %@", alertSoundName);
-                // Search for the sound file
-                NSArray *soundPaths = @[
-                    @"/System/Library/Sounds",
-                    @"/usr/share/sounds",
-                    @"/usr/local/share/sounds",
-                    [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Sounds"]
-                ];
-
-                NSArray *extensions = @[@"aiff", @"aif", @"wav", @"au", @"snd"];
-
-                for (NSString *basePath in soundPaths) {
-                    for (NSString *ext in extensions) {
-                        NSString *soundPath = [basePath stringByAppendingPathComponent:
-                                             [alertSoundName stringByAppendingPathExtension:ext]];
-
-                        if ([[NSFileManager defaultManager] fileExistsAtPath:soundPath]) {
-                            NSDebugLog(@"Found sound at %@", soundPath);
-                            // Play the sound using NSSound
-                            NSSound *sound = [[NSSound alloc] initWithContentsOfFile:soundPath
-                                                                        byReference:YES];
-                            if (sound) {
-                                NSDebugLog(@"Playing sound %@", soundPath);
-                                // Respect the alert volume setting
-                                if (alertVolume) {
-                                    [sound setVolume:[alertVolume floatValue]];
-                                }
-                                [sound play];
-                                isPlaying = NO;
-                                return;
-                            } else {
-                                NSDebugLog(@"Failed to init NSSound for %@", soundPath);
-                            }
-                        }
-                    }
+                /* EauSound plays at the user's configured alert volume and
+                 * reports failure so we can still fall back to the bell */
+                if (EauPlaySystemSound(alertSoundName)) {
+                    isPlaying = NO;
+                    return;
                 }
                 NSDebugLog(@"No sound file found for %@ in sound paths", alertSoundName);
             } else {

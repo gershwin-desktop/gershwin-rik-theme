@@ -1,8 +1,48 @@
 #include "Eau.h"
 
+@protocol EauDockService
+- (void)setProgressValue:(double)value;
+- (void)setProgressVisible:(BOOL)visible;
+@end
+
 @interface Eau(EauProgressIndicator)
 
 @end
+
+@interface Eau(EauDockProgress)
+- (void)reportDockProgress:(double)value;
+- (void)resetDockHideTimer;
+- (void)hideDockProgress:(NSTimer *)timer;
+@end
+
+// Mirror an app's progress bar into its Dock icon via the DockIcon DO service
+// (Workspace's Dock, see DockService.m).  Eau runs inside every app, so the
+// service resolves the caller and updates that app's own Dock icon.  Value is
+// throttled to changes; a timer hides the Dock bar a while after the last
+// draw, so a finished or removed indicator does not stay stuck on the icon.
+#define EAU_DOCK_HIDE_DELAY 2.0
+static id<EauDockService> dockProgressProxy = nil;
+static double lastDockValue = -2.0;   /* sentinel: nothing reported yet */
+static NSTimer *dockHideTimer = nil;
+static NSTimeInterval lastDockConnectAttempt = 0.0;
+
+static id<EauDockService> EauDockProgressProxy(void)
+{
+  NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+  if (dockProgressProxy == nil && (now - lastDockConnectAttempt) > 5.0)
+    {
+      /* Retry every few seconds so an app that starts before the Dock is
+       * still able to pick the service up once the Dock is running. */
+      lastDockConnectAttempt = now;
+      NSConnection *conn =
+        [NSConnection connectionWithRegisteredName:@"DockIcon" host:nil];
+      if (conn)
+        {
+          dockProgressProxy = (id<EauDockService>)[conn rootProxy];
+        }
+    }
+  return dockProgressProxy;
+}
 
 @implementation Eau(EauProgressIndicator)
 
@@ -63,6 +103,17 @@ static NSImage *spinningImages[MaxCount];
     {
       [self initProgressIndicatorDrawing];
     }
+  // Mirror the indicator into this app's Dock icon: determinate bars report
+  // their fraction, indeterminate/spinning bars report -1 (no fill).
+  if ([progress style] == NSProgressIndicatorSpinningStyle
+      || [progress isIndeterminate])
+    {
+      [self reportDockProgress: -1.0];
+    }
+  else
+    {
+      [self reportDockProgress: val];
+    }
   // Draw the Bezel
   if ([progress isBezeled])
     {
@@ -76,18 +127,8 @@ static NSImage *spinningImages[MaxCount];
 
   if ([progress style] == NSProgressIndicatorSpinningStyle)
     {
-      NSRect imgBox = {{0,0}, {0,0}};
-
-      if (spinningMaxCount != 0)
-        {
-          count = count % spinningMaxCount;
-          imgBox.size = [spinningImages[count] size];
-          [spinningImages[count] drawInRect: r
-                  fromRect: imgBox
-                operation: NSCompositeSourceOver
-                  fraction: 1.0];
-        }
-     }
+      [self drawProgressIndicatorSpinner: r atCount: count];
+    }
    else
      {
        if ([progress isIndeterminate])
@@ -163,6 +204,69 @@ static NSImage *spinningImages[MaxCount];
     return [self drawInnerGrayBezel: bounds withClip: rect];
 }
 
+// Twelve spokes fixed on the disc; only their luminance travels one step
+// per frame, producing a rotating highlight without any geometry rotation.
+// A single brightest spoke fades smoothly to the darkest opposite it and
+// back, so the bright spot advances clockwise as the frame index grows.
+#define EAU_SPINNER_SPOKES 12
+static const CGFloat EAU_SPINNER_BRIGHT = 0.50; /* 50% gray, brightest */
+static const CGFloat EAU_SPINNER_DARK   = 0.80; /* 80% gray, darkest */
+
+- (void) drawProgressIndicatorSpinner: (NSRect)r atCount: (int)count
+{
+  CGFloat diameter = MIN(NSWidth(r), NSHeight(r));
+  CGFloat innerRadius, outerRadius, batonWidth;
+  NSPoint center;
+  int i;
+
+  if (diameter < 4.0)
+    return;
+
+  /* Geometry is fixed in point space regardless of the control's pixel
+   * size; scale the 16pt design (inner 3, outer 6, width 2) to fit. */
+  center = NSMakePoint(NSMidX(r), NSMidY(r));
+  innerRadius = diameter * (3.0 / 16.0);
+  outerRadius = diameter * (6.0 / 16.0);
+
+  /* Small controls (24pt and below) use fewer spokes so the wheel reads
+   * clearly at that size instead of blurring into a solid disc.  Their
+   * wider-spaced batons are drawn a little bolder to stay legible. */
+  BOOL small = (diameter <= 24.0);
+  int spokes = small ? 8 : EAU_SPINNER_SPOKES;
+  CGFloat batonFactor = small ? 2.5 : 1.5;
+  batonWidth = MAX(1.0, diameter * (batonFactor / 16.0));
+  CGFloat step = (CGFloat)(2.0 * M_PI) / (CGFloat)spokes;
+
+  for (i = 0; i < spokes; i++)
+    {
+      /* Fixed placement: spoke 0 points straight up, each next spoke steps
+       * a fixed angle clockwise around the disc and never moves. */
+      CGFloat theta = (CGFloat)i * step;
+      CGFloat s = sin(theta);
+      CGFloat c = cos(theta);
+
+       /* Luminance travels with the frame: the brightest phase sits at
+        * spoke (i - f), so the highlight advances clockwise as f grows. */
+       int phase = (i - (count % spokes) + spokes) % spokes;
+      CGFloat t = (cos((CGFloat)phase * step) + 1.0) / 2.0;
+      CGFloat gray = EAU_SPINNER_DARK
+                     - (EAU_SPINNER_DARK - EAU_SPINNER_BRIGHT) * t;
+
+      NSColor *batonColour =
+        [NSColor colorWithCalibratedWhite: gray alpha: 1.0];
+      [batonColour setStroke];
+
+      NSBezierPath *spoke = [NSBezierPath bezierPath];
+      [spoke setLineWidth: batonWidth];
+      [spoke setLineCapStyle: NSRoundLineCapStyle];
+      [spoke moveToPoint: NSMakePoint(center.x + s * innerRadius,
+                                      center.y + c * innerRadius)];
+      [spoke lineToPoint: NSMakePoint(center.x + s * outerRadius,
+                                      center.y + c * outerRadius)];
+      [spoke stroke];
+    }
+}
+
 - (void) drawProgressIndicatorBarDeterminate: (NSRect)bounds withOrientation:(BOOL) isVertical
 {
 
@@ -190,6 +294,64 @@ static NSImage *spinningImages[MaxCount];
   [progressbarGradient drawInBezierPath: fullrectangePath angle: angle];
 
 
+}
+
+@end
+
+@implementation Eau(EauDockProgress)
+
+- (void)reportDockProgress:(double)value
+{
+  id<EauDockService> proxy = EauDockProgressProxy();
+  if (proxy == nil)
+    {
+      return;
+    }
+  if (value == lastDockValue)
+    {
+      /* Value unchanged but still being drawn: keep the bar visible by
+       * pushing the hide time out.  A determinate bar that stalls mid-way
+       * must not flicker, and a spinning indicator redraws constantly. */
+      [self resetDockHideTimer];
+      return;
+    }
+  lastDockValue = value;
+  [proxy setProgressValue: value];
+  [proxy setProgressVisible: YES];
+  [self resetDockHideTimer];
+}
+
+- (void)resetDockHideTimer
+{
+  if (dockHideTimer)
+    {
+      [dockHideTimer invalidate];
+      dockHideTimer = nil;
+    }
+  /* scheduledTimerWithTimeInterval only serves the default mode; a modal
+   * alert or menu tracking (Build's success alert, a Run dialog) would stall
+   * the timer, leaving the Dock bar stuck.  Serve those modes too. */
+  NSTimer *t = [NSTimer timerWithTimeInterval: EAU_DOCK_HIDE_DELAY
+                                       target: self
+                                     selector: @selector(hideDockProgress:)
+                                     userInfo: nil
+                                      repeats: NO];
+  NSRunLoop *rl = [NSRunLoop currentRunLoop];
+  [rl addTimer: t forMode: NSDefaultRunLoopMode];
+  [rl addTimer: t forMode: NSModalPanelRunLoopMode];
+  [rl addTimer: t forMode: NSEventTrackingRunLoopMode];
+  dockHideTimer = t;
+}
+
+- (void)hideDockProgress:(NSTimer *)timer
+{
+  dockHideTimer = nil;
+  lastDockValue = -2.0;
+  id<EauDockService> proxy = EauDockProgressProxy();
+  if (proxy)
+    {
+      [proxy setProgressVisible: NO];
+    }
 }
 
 @end

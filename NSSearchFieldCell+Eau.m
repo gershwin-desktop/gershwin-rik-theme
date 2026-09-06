@@ -6,7 +6,6 @@
 
 #import "Eau.h"
 #import "NSSearchFieldCell+Eau.h"
-#import "Eau+Button.h"
 
 #define ICON_WIDTH	16
 
@@ -21,6 +20,8 @@
 - (NSRect) EAUtitleRectForBounds: (NSRect)theRect;
 - (NSRect) EAUsearchButtonRectForBounds: (NSRect)rect;
 - (NSRect) EAUcancelButtonRectForBounds: (NSRect)rect;
+- (void) EAUresetCursorRect: (NSRect)cellFrame inView: (NSView*)controlView;
+- (BOOL) EAUtrackMouse: (NSEvent*)theEvent inRect: (NSRect)cellFrame ofView: (NSView*)controlView untilMouseUp: (BOOL)flag;
 @end
 
 @implementation Eau(NSSearchFieldCell)
@@ -74,12 +75,27 @@
   return [xself EAUcancelButtonRectForBounds:rect];
 }
 
+- (void) _overrideNSSearchFieldCellMethod_resetCursorRect: (NSRect)cellFrame inView: (NSView*)controlView {
+  NSDebugLog(@"_overrideNSSearchFieldCellMethod_resetCursorRect:inView:");
+  NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
+  [xself EAUresetCursorRect:cellFrame inView:controlView];
+}
+
+- (BOOL) _overrideNSSearchFieldCellMethod_trackMouse: (NSEvent*)theEvent inRect: (NSRect)cellFrame ofView: (NSView*)controlView untilMouseUp: (BOOL)flag {
+  NSDebugLog(@"_overrideNSSearchFieldCellMethod_trackMouse:inRect:ofView:untilMouseUp:");
+  NSSearchFieldCell *xself = (NSSearchFieldCell*)self;
+  return [xself EAUtrackMouse: theEvent inRect: cellFrame ofView: controlView untilMouseUp: flag];
+}
+
 @end
 
 @implementation NSSearchFieldCell (EauTheme)
 
 - (void) EAUdrawWithFrame: (NSRect)cellFrame inView: (NSView*)controlView
 {
+  [self setDrawsBackground: NO];
+  [self setBackgroundColor: [NSColor clearColor]];
+
   // Draw the Eau search bezel + the text interior directly. We must NOT call
   // [super drawWithFrame:] here: Eau's theme-override mechanism re-dispatches
   // drawWithFrame: dynamically back into THIS method (super does not escape the
@@ -90,34 +106,85 @@
   [self _EAUdrawBorderAndBackgroundWithFrame: cellFrame inView: controlView];
   [self EAUdrawInteriorWithFrame: cellFrame inView: controlView];
 
-  [_search_button_cell drawWithFrame: [self searchButtonRectForBounds: cellFrame]
-			      inView: controlView];
+  if (_search_button_cell != nil)
+    {
+      [_search_button_cell drawWithFrame: [self searchButtonRectForBounds: cellFrame]
+                                  inView: controlView];
+    }
+  else
+    {
+      /* Draw magnifying glass directly if search button cell is not available */
+      NSRect sr = [self searchButtonRectForBounds: cellFrame];
+      CGFloat cx = NSMidX(sr);
+      CGFloat cy = NSMidY(sr);
+      CGFloat r = NSWidth(sr) * 0.3;
+      CGFloat handle = r * 0.6;
+
+      [[NSColor colorWithCalibratedWhite: 0.4 alpha: 0.6] setStroke];
+      [NSBezierPath setDefaultLineWidth: 1.5];
+
+      NSBezierPath *glass = [NSBezierPath bezierPath];
+      [glass appendBezierPathWithArcWithCenter: NSMakePoint(cx, cy)
+                                        radius: r
+                                    startAngle: 0 endAngle: 360];
+      [glass stroke];
+
+      [NSBezierPath strokeLineFromPoint: NSMakePoint(cx + r * 0.7, cy + r * 0.7)
+                                toPoint: NSMakePoint(cx + r + handle, cy + r + handle)];
+    }
   if ([[self stringValue] length] > 0)
-    [_cancel_button_cell drawWithFrame: [self cancelButtonRectForBounds: cellFrame]
-			        inView: controlView];
+    {
+      if (_cancel_button_cell != nil)
+        {
+          [_cancel_button_cell drawWithFrame: [self cancelButtonRectForBounds: cellFrame]
+                                      inView: controlView];
+        }
+      else
+        {
+          /* Draw clear-button circle with X */
+          NSRect xr = [self cancelButtonRectForBounds: cellFrame];
+          CGFloat cx = NSMidX(xr);
+          CGFloat cy = NSMidY(xr);
+
+          /* Gray circle background */
+          NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect: NSInsetRect(xr, 3, 3)];
+          [[NSColor colorWithCalibratedWhite: 0.5 alpha: 0.5] setStroke];
+          [NSBezierPath setDefaultLineWidth: 1.0];
+          [circle stroke];
+
+          /* White X inside */
+          CGFloat xi = NSWidth(xr) * 0.28;
+          [[NSColor colorWithCalibratedWhite: 0.5 alpha: 0.8] setStroke];
+          [NSBezierPath setDefaultLineWidth: 1.8];
+          NSBezierPath *xPath = [NSBezierPath bezierPath];
+          [xPath moveToPoint: NSMakePoint(cx - xi, cy - xi)];
+          [xPath lineToPoint: NSMakePoint(cx + xi, cy + xi)];
+          [xPath moveToPoint: NSMakePoint(cx + xi, cy - xi)];
+          [xPath lineToPoint: NSMakePoint(cx - xi, cy + xi)];
+          [xPath stroke];
+        }
+    }
 }
 
 /* This method put the "x" cell inside the Text cell */
 
+/* Icon occupies [4, 20] (16px wide at x=4 per searchButtonRectForBounds:);
+ * 4px gap between the icon and its label text. */
+#define TEXT_LEFT_OFFSET	(4 + ICON_WIDTH + 4)
+
 - (NSRect) EAUsearchTextRectForBounds: (NSRect)rect
 {
-	NSRect search, text, part;
+	NSRect search, part;
 
-	if (_search_button_cell)
-	{
-		part = rect;
-		/*set the right point and size*/
-		part.origin.x +=0;
-		part.size.width -= 1;
-	}
-	else
-	{
-		NSDivideRect(rect, &search, &part, ICON_WIDTH, NSMinXEdge);
-	}
+	/* Always leave room for the search button/magnifier on the left, whether
+	 * the button cell exists or not, so the text never starts under the icon.
+	 * searchButtonRectForBounds: places the icon in [0, ICON_WIDTH] (plus a
+	 * small offset); start the text after it with the HIG gap. */
+	NSDivideRect(rect, &search, &part, ICON_WIDTH, NSMinXEdge);
+	part.origin.x += TEXT_LEFT_OFFSET - ICON_WIDTH;
+	part.size.width -= (TEXT_LEFT_OFFSET - ICON_WIDTH);
 
-	text = part;
-
-	return text;
+	return part;
 }
 
 - (void) _EAUdrawBorderAndBackgroundWithFrame: (NSRect)cellFrame
@@ -186,10 +253,21 @@
 {
   if ([controlView isKindOfClass: [NSControl class]])
     {
-      /* Adjust the text editor's frame to match cell's frame (w/o border) */
-      NSRect titleRect = [self titleRectForBounds: cellFrame];
+      /* Position the editor in the search field's text area (after the
+       * magnifier icon), matching how -editWithFrame:inView:... places the
+       * editor.  Using -titleRectForBounds: here would silently return the
+       * full cell frame while editing and put the text back under the icon. */
+      NSRect titleRect = [self searchTextRectForBounds: cellFrame];
       NSText *textObject = [(NSControl*)controlView currentEditor];
       NSView *clipView = [textObject superview];
+
+      /* Make the editor background transparent so the rounded bezel shows through */
+      [textObject setDrawsBackground: NO];
+      [textObject setBackgroundColor: [NSColor clearColor]];
+      if ([(id)clipView respondsToSelector: @selector(setDrawsBackground:)])
+        {
+          [(id)clipView setDrawsBackground: NO];
+        }
 
       if ([clipView isKindOfClass: [NSClipView class]])
 	{
@@ -207,16 +285,24 @@
   if (_cell.type == NSTextCellType)
     {
       NSRect frame = [self drawingRectForBounds: theRect];
-       //Add spacing between border and inside
-      if (_cell.is_bordered || _cell.is_bezeled)
+
+      /* Always leave room for the magnifier and centre the text.  The search
+       * field's cell reports isBordered/isBezeled == NO on this stack (the
+       * field is set drawsBackground:NO and Eau draws the bezel manually),
+       * so the bordered/bezeled check would skip the inset and draw the
+       * placeholder under the magnifier and top-left instead of centred. */
+      frame.origin.x += TEXT_LEFT_OFFSET;
+      frame.size.width -= (TEXT_LEFT_OFFSET + 14);
+
+      /* Vertically centre the text within the search field.  GNUstep
+       * draws string glyphs top-aligned within the rect, so centering
+       * the font's bounding box is correct. */
+      CGFloat fontHeight = [[self font] boundingRectForFont].size.height;
+      if (fontHeight > 0 && fontHeight < NSHeight(frame))
         {
-          frame.origin.x += 16;
-          frame.size.width -= 30;
-	  /*By Slex: If you modify this value, then the chars. will overlap when the text field is 		  *full filled of charcters. You'll see part of characters like 'p' or 'g' or 'j' taking
-          *the next line of the editor text field, looking very bad
-	  */
-          frame.size.height += 0;
-	  
+          CGFloat yShift = (NSHeight(frame) - fontHeight) / 2.0;
+          frame.origin.y += yShift;
+          frame.size.height = fontHeight;
         }
       return frame;
     }
@@ -243,6 +329,38 @@
   NSDivideRect(rect, &clear, &part, ICON_WIDTH, NSMaxXEdge);
   clear.origin.x -= 5; //This set the position inside the textsearch box
   return clear;
+}
+
+- (void) EAUresetCursorRect: (NSRect)cellFrame inView: (NSView*)controlView
+{
+  /* Let the NSSearchFieldCell's standard cursor rects be set first */
+  [super resetCursorRect: cellFrame inView: controlView];
+
+  /* If the cancel button is visible, change cursor to pointing hand */
+  if ([[self stringValue] length] > 0)
+    {
+      NSRect cancelRect = [self cancelButtonRectForBounds: cellFrame];
+      [controlView addCursorRect: cancelRect cursor: [NSCursor pointingHandCursor]];
+    }
+}
+
+- (BOOL) EAUtrackMouse: (NSEvent*)theEvent inRect: (NSRect)cellFrame ofView: (NSView*)controlView untilMouseUp: (BOOL)flag
+{
+  if ([[self stringValue] length] > 0)
+    {
+      NSPoint mouseLoc = [controlView convertPoint: [theEvent locationInWindow] fromView: nil];
+      NSRect cancelRect = [self cancelButtonRectForBounds: cellFrame];
+
+      if (NSMouseInRect(mouseLoc, cancelRect, [controlView isFlipped]))
+        {
+          [self setStringValue: @""];
+          if ([controlView respondsToSelector: @selector(sendAction:)])
+            [(NSControl*)controlView sendAction: [self action] to: [self target]];
+          return YES;
+        }
+    }
+
+  return [super trackMouse: theEvent inRect: cellFrame ofView: controlView untilMouseUp: flag];
 }
 
 @end

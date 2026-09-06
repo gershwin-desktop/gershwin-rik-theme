@@ -35,8 +35,8 @@ static const float METRICS_TITLE_MESSAGE_GAP = 8.0;
 
 // Vertical spacing between multiple buttons shall be 12px
 static const float METRICS_BUTTON_VERT_INTERSPACE = 12.0;
-// Horizontal spacing between multiple buttons shall be 10px
-static const float METRICS_BUTTON_HORIZ_INTERSPACE = 10.0;
+// Horizontal spacing between multiple buttons shall be 12px (leave at least 12px between buttons)
+static const float METRICS_BUTTON_HORIZ_INTERSPACE = 12.0;
 
 // Normal buttons shall always be 20px high (resize any buttons requested to be 19-24px high to be 20px)
 // unless they contain an icon, in which case they may be higher if needed
@@ -66,6 +66,9 @@ static const float METRICS_RADIO_BUTTON_SMALL_LINE_SPACING = 18.0;
 
 // Screen size scaling factor
 static const float METRICS_SIZE_SCALE = 0.6;
+// Height cap for oversized dialogs: 60% of the width cap, so a long-text
+// dialog fills noticeably less of the screen than before
+static const float METRICS_SIZE_SCALE_HEIGHT = 0.36;
 
 // Text input fields shall be 22px high
 static const float METRICS_TEXT_INPUT_FIELD_HEIGHT = 22.0;
@@ -94,6 +97,37 @@ static const float METRICS_RESIZE_EDGE_THICKNESS = 4.0;
 // Grow box zone size (matches actual scroller width for visual consistency)
 #define METRICS_GROW_BOX_SIZE 16.0
 
+// GSScaleFactor: backing scale factor for HiDPI displays.
+// Reads from NSUserDefaults (set via -GSScaleFactor N on command line),
+// falls back to [[NSScreen mainScreen] backingScaleFactor], caches result.
+// The cache is a single process-wide value so GSWScaleFactorInvalidate()
+// resets it everywhere at once (e.g. for live scale-factor changes).
+extern CGFloat GSWScaleFactorValue;
+static inline CGFloat GSWScaleFactor(void) {
+    if (GSWScaleFactorValue == 0) {
+        GSWScaleFactorValue = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+        if (GSWScaleFactorValue == 0)
+            GSWScaleFactorValue = [[NSScreen mainScreen] backingScaleFactor];
+        if (GSWScaleFactorValue == 0) GSWScaleFactorValue = 1.0;
+    }
+    return GSWScaleFactorValue;
+}
+static inline void GSWScaleFactorInvalidate(void) {
+    GSWScaleFactorValue = 0;
+}
+
+// Pixel-scaled window decoration metrics (multiplied by GSScaleFactor).
+// Used by theme drawing code — logical metrics remain in the base constants.
+#define METRICS_TITLEBAR_HEIGHT_PX (METRICS_TITLEBAR_HEIGHT * GSWScaleFactor())
+#define METRICS_TITLEBAR_ORB_BUTTON_SIZE_PX (METRICS_TITLEBAR_ORB_BUTTON_SIZE * GSWScaleFactor())
+#define METRICS_TITLEBAR_ORB_PADDING_LEFT_PX (METRICS_TITLEBAR_ORB_PADDING_LEFT * GSWScaleFactor())
+#define METRICS_TITLEBAR_ORB_BUTTON_SPACING_PX (METRICS_TITLEBAR_ORB_BUTTON_SPACING * GSWScaleFactor())
+#define METRICS_TITLEBAR_ORB_REGION_WIDTH_PX (METRICS_TITLEBAR_ORB_REGION_WIDTH * GSWScaleFactor())
+#define METRICS_TITLEBAR_ICON_INSET_PX (METRICS_TITLEBAR_ICON_INSET * GSWScaleFactor())
+#define METRICS_TITLEBAR_ICON_STROKE_PX (METRICS_TITLEBAR_ICON_STROKE * GSWScaleFactor())
+#define METRICS_TITLEBAR_BUTTON_INNER_RADIUS_PX (METRICS_TITLEBAR_BUTTON_INNER_RADIUS * GSWScaleFactor())
+#define METRICS_TITLEBAR_CORNER_RADIUS_PX (METRICS_TITLEBAR_CORNER_RADIUS * GSWScaleFactor())
+
 // Window corner radii for rounded corners
 static const float METRICS_TITLEBAR_CORNER_RADIUS = 7.0;  // Optically matches Menu app corner radius
 static const float METRICS_WINDOW_BOTTOM_CORNER_RADIUS = 0.0;
@@ -112,7 +146,7 @@ static const float METRICS_TITLEBAR_ORB_BUTTON_SPACING = 4.0;
 static const float METRICS_TITLEBAR_ORB_REGION_WIDTH = 68.0;    // Left region reserved for 3 orbs + padding
 
 // Control Positioning in Dialogs
-// All spacing between dialog elements shall be a multiple of 4px (4, 8, 12, 16, 20, or 24).
+// All spacing between dialog elements shall be a multiple of 2px (2, 4, 6, 8, 12, 16, 20, or 24).
 // Guidelines:
 // - No space between window edge and scroll bars or frame for single-view document windows.
 // - For mixed control dialogs, maintain: 
@@ -130,15 +164,7 @@ static const float METRICS_TITLEBAR_ORB_REGION_WIDTH = 68.0;    // Left region r
 // - Text for controls (pop-up buttons, checkbox/radio groups) shall be 8px from the associated control.
 // - Bevel button spacing varies: toolbar buttons shall be spaced 8px apart; avoid overlapping smaller buttons in palettes.
 // - The OK/default button goes in the lower-right corner; a Cancel button shall be to its left, followed by any alternate buttons.
-// - Preferred button order: alternate, Cancel, default, with a minimum of 12px horizontal and 10px vertical spacing between push buttons.
-// Control Spacing Guidelines
-// - Group controls shall have 20px of vertical spacing; subgroups within groups shall have 16px.
-// - Vertical spacing is determined by the tallest control in the row.
-// - Checkboxes and radio buttons are spaced 20px baseline-to-baseline, providing 7px of separation between each control.
-// - Text for controls (pop-up buttons, checkbox/radio groups) shall be 8px from the associated control.
-// - Bevel button spacing varies: toolbar buttons shall be spaced 8px apart; avoid overlapping smaller buttons in palettes.
-// - The OK/default button goes in the lower-right corner; a Cancel button shall be to its left, followed by any alternate buttons.
-// - Preferred button order: alternate, Cancel, default, with a minimum of 12px horizontal and 10px vertical spacing between push buttons.
+// - Preferred button order: alternate, Cancel, default, with a minimum of 12px horizontal and 12px vertical spacing between push buttons.
 // 
 // Spacing:
 // - 8px: Between a control and its text label or icon.

@@ -9,6 +9,9 @@
 - (CGFloat)eau_titleWidth;
 - (NSRect)eau_titleRectForBounds:(NSRect)cellFrame;
 - (NSColor *)eau_textColor;
+- (void)eau_drawImageWithFrame:(NSRect)cellFrame inView:(NSView*)controlView;
+- (CGFloat)eau_imageWidth;
+- (NSRect)eau_imageRectForBounds:(NSRect)cellFrame;
 @end
 
 @implementation NSMenuItemCell (EauSwizzling)
@@ -26,13 +29,35 @@
   return paddedWidth;
 }
 
-// Swizzled implementation for titleRectForBounds: - shifts title to center in padded space
+// Swizzled implementation for titleRectForBounds: - shifts title to center in
+// padded space and corrects the title offset for a capped icon width.
 - (NSRect)eau_titleRectForBounds:(NSRect)cellFrame {
   NSDebugLog(@"NSMenuItemCell+Eau: eau_titleRectForBounds: called with cellFrame=(%f, %f, %f, %f)",
         cellFrame.origin.x, cellFrame.origin.y, cellFrame.size.width, cellFrame.size.height);
 
   // After swizzling, this message sends the original titleRectForBounds: implementation
   NSRect originalRect = [self eau_titleRectForBounds:cellFrame];
+
+  // GNUstep's original offsets the title by the RAW image width (_imageWidth),
+  // which is the full icon size (e.g. 128px).  The image column is capped to
+  // the theme's icon size, so pull the title back left by the difference,
+  // otherwise text lands far to the right of a small icon.
+  NSMenuItem *item = [self menuItem];
+  NSImage *image = [item image];
+  NSString *title = [item title];
+  if (image && title && [title length] > 0)
+    {
+      NSSize imgSize = [image size];
+      CGFloat rawWidth = imgSize.width;
+      CGFloat iconSize = [(Eau *)[GSTheme theme] menuItemIconSize];
+      CGFloat cappedWidth = MIN(rawWidth, iconSize);
+      if (rawWidth > cappedWidth)
+        {
+          CGFloat delta = rawWidth - cappedWidth;
+          originalRect.origin.x -= delta;
+          originalRect.size.width += delta;
+        }
+    }
 
   // Shift by half padding to horizontally center in padded space
   originalRect.origin.x += (EAU_MENU_ITEM_PADDING / 2.0);
@@ -49,6 +74,85 @@
     return [NSColor colorWithCalibratedWhite: 0.65 alpha: 1.0];
   }
   return [self eau_textColor];
+}
+
+// Swizzled implementation for drawImageWithFrame:inView: —
+// when image IS the title (image + empty title), draw centered in full cell;
+// when the item has both an icon and a title, scale the icon down to the
+// theme's menuItemIconSize so a large app/prefPane icon renders small.
+- (void)eau_drawImageWithFrame:(NSRect)cellFrame inView:(NSView*)controlView
+{
+  NSMenuItem *item = [self menuItem];
+  NSImage *image = [item image];
+  NSString *title = [item title];
+  if (image)
+    {
+      NSSize imgSize = [image size];
+      if (!title || [title length] == 0)
+        {
+          /* Image is the whole item - draw centered in the full cell. */
+          CGFloat scale = MIN(cellFrame.size.width / imgSize.width,
+                              cellFrame.size.height / imgSize.height);
+          if (scale > 1.0) scale = 1.0;
+          NSSize drawSize = NSMakeSize(imgSize.width * scale,
+                                       imgSize.height * scale);
+          NSPoint drawPoint = NSMakePoint(NSMidX(cellFrame) - drawSize.width / 2,
+                                          NSMidY(cellFrame) - drawSize.height / 2);
+          [image drawInRect: NSMakeRect(drawPoint.x, drawPoint.y,
+                                        drawSize.width, drawSize.height)
+                   fromRect: NSZeroRect
+                  operation: NSCompositeSourceOver
+                   fraction: 1.0];
+          return;
+        }
+      else
+        {
+          /* Icon next to a title: draw in the (capped) image column rect,
+             scaled down (never up) to fit the theme's icon size. */
+          NSRect imageRect = [self imageRectForBounds: cellFrame];
+          CGFloat iconSize = [(Eau *)[GSTheme theme] menuItemIconSize];
+          if (imageRect.size.width > iconSize)
+            imageRect.size.width = iconSize;
+          CGFloat scale = MIN(imageRect.size.width / imgSize.width,
+                              imageRect.size.height / imgSize.height);
+          if (scale > 1.0) scale = 1.0;
+          NSSize drawSize = NSMakeSize(imgSize.width * scale,
+                                       imgSize.height * scale);
+          NSPoint drawPoint = NSMakePoint(NSMidX(imageRect) - drawSize.width / 2,
+                                          NSMidY(imageRect) - drawSize.height / 2);
+          [image drawInRect: NSMakeRect(drawPoint.x, drawPoint.y,
+                                        drawSize.width, drawSize.height)
+                   fromRect: NSZeroRect
+                  operation: NSCompositeSourceOver
+                   fraction: 1.0];
+          return;
+        }
+    }
+  [self eau_drawImageWithFrame: cellFrame inView: controlView];
+}
+
+/* Cap the image column width so a large app/prefPane icon does not widen the
+   whole menu.  NSMenuView lays out the menu using imageWidth, so it must be
+   capped too - not just the drawn image. */
+- (CGFloat)eau_imageWidth
+{
+  CGFloat width = [self eau_imageWidth];
+  CGFloat iconSize = [(Eau *)[GSTheme theme] menuItemIconSize];
+  if (width > iconSize)
+    return iconSize;
+  return width;
+}
+
+/* Cap the image rect width to the same icon size.  The default rect is as
+   wide as the image itself; drawing into a capped rect keeps the icon small
+   and aligned in the image column. */
+- (NSRect)eau_imageRectForBounds:(NSRect)cellFrame
+{
+  NSRect rect = [self eau_imageRectForBounds: cellFrame];
+  CGFloat iconSize = [(Eau *)[GSTheme theme] menuItemIconSize];
+  if (rect.size.width > iconSize)
+    rect.size.width = iconSize;
+  return rect;
 }
 
 @end
@@ -127,6 +231,56 @@ static void initMenuItemCellSwizzling(void) {
     if (!swizzledTextColorMethod) {
       NSLog(@"NSMenuItemCell+Eau: ERROR - Could not find eau_textColor method on NSMenuItemCell");
     }
+  }
+
+  // Swizzle drawImageWithFrame:inView: — draws image centered in full cell
+  // when the image IS the menu title (image + empty title)
+  SEL drawImageSelector = sel_registerName("drawImageWithFrame:inView:");
+  Method originalDrawImageMethod = class_getInstanceMethod(menuItemCellClass, drawImageSelector);
+  Method swizzledDrawImageMethod = class_getInstanceMethod(menuItemCellClass, @selector(eau_drawImageWithFrame:inView:));
+  if (originalDrawImageMethod && swizzledDrawImageMethod) {
+    IMP originalIMP = method_getImplementation(originalDrawImageMethod);
+    IMP swizzledIMP = method_getImplementation(swizzledDrawImageMethod);
+    if (originalIMP != swizzledIMP) {
+      method_exchangeImplementations(originalDrawImageMethod, swizzledDrawImageMethod);
+    }
+  } else {
+    if (!originalDrawImageMethod) {
+      NSLog(@"NSMenuItemCell+Eau: ERROR - Could not find original drawImageWithFrame:inView: method");
+    }
+    if (!swizzledDrawImageMethod) {
+      NSLog(@"NSMenuItemCell+Eau: ERROR - Could not find eau_drawImageWithFrame:inView: method on NSMenuItemCell");
+    }
+  }
+
+  // Swizzle imageWidth - caps the image column so large icons stay small
+  SEL imageWidthSelector = sel_registerName("imageWidth");
+  Method originalImageWidthMethod = class_getInstanceMethod(menuItemCellClass, imageWidthSelector);
+  Method swizzledImageWidthMethod = class_getInstanceMethod(menuItemCellClass, @selector(eau_imageWidth));
+  if (originalImageWidthMethod && swizzledImageWidthMethod) {
+    IMP originalIMP = method_getImplementation(originalImageWidthMethod);
+    IMP swizzledIMP = method_getImplementation(swizzledImageWidthMethod);
+    if (originalIMP != swizzledIMP) {
+      method_exchangeImplementations(originalImageWidthMethod, swizzledImageWidthMethod);
+    }
+  } else {
+    NSLog(@"NSMenuItemCell+Eau: WARNING - Could not swizzle imageWidth (orig=%p swiz=%p)",
+      originalImageWidthMethod, swizzledImageWidthMethod);
+  }
+
+  // Swizzle imageRectForBounds: - caps the image draw rect to icon size
+  SEL imageRectSelector = sel_registerName("imageRectForBounds:");
+  Method originalImageRectMethod = class_getInstanceMethod(menuItemCellClass, imageRectSelector);
+  Method swizzledImageRectMethod = class_getInstanceMethod(menuItemCellClass, @selector(eau_imageRectForBounds:));
+  if (originalImageRectMethod && swizzledImageRectMethod) {
+    IMP originalIMP = method_getImplementation(originalImageRectMethod);
+    IMP swizzledIMP = method_getImplementation(swizzledImageRectMethod);
+    if (originalIMP != swizzledIMP) {
+      method_exchangeImplementations(originalImageRectMethod, swizzledImageRectMethod);
+    }
+  } else {
+    NSLog(@"NSMenuItemCell+Eau: WARNING - Could not swizzle imageRectForBounds: (orig=%p swiz=%p)",
+      originalImageRectMethod, swizzledImageRectMethod);
   }
 }
 

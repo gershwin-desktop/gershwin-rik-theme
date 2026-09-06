@@ -145,6 +145,8 @@ titleRect.size.height += 2;
                    start: (NSInteger)selStart
                   length: (NSInteger)selLength
 {
+	[self setDrawsBackground: NO];
+	[self setBackgroundColor: [NSColor clearColor]];
 	if (![self isMemberOfClass:[NSSearchFieldCell class]])
 	{
 		NSRect drawingRect = [self drawingRectForBounds: aRect];
@@ -158,6 +160,8 @@ titleRect.size.height += 2;
 	{
 		[super selectWithFrame:aRect inView:controlView editor:textObject delegate:anObject start:selStart length:selLength];
 	}
+	[textObject setDrawsBackground: NO];
+	[textObject setBackgroundColor: [NSColor clearColor]];
 }
 
 - (void) EAUeditWithFrame: (NSRect)aRect
@@ -166,6 +170,8 @@ titleRect.size.height += 2;
               delegate: (id)anObject
                  event: (NSEvent*)theEvent
 {
+	[self setDrawsBackground: NO];
+	[self setBackgroundColor: [NSColor clearColor]];
 	if (![self isMemberOfClass:[NSSearchFieldCell class]])
 	{
 		NSRect drawingRect = [self drawingRectForBounds: aRect];
@@ -179,9 +185,8 @@ titleRect.size.height += 2;
 	{
 		[super editWithFrame:aRect inView:controlView editor:textObject delegate:anObject event:theEvent];
 	}
-
-
-
+	[textObject setDrawsBackground: NO];
+	[textObject setBackgroundColor: [NSColor clearColor]];
 }
 
 - (void) _EAUdrawEditorWithFrame: (NSRect)cellFrame
@@ -189,13 +194,22 @@ titleRect.size.height += 2;
 {
   if ([controlView isKindOfClass: [NSControl class]])
     {
-      /* Don't draw any cell background when editing - this allows transparency */
+      NSText *textObject = [(NSControl*)controlView currentEditor];
+
+      /* Make the editor background transparent so the rounded bezel shows through */
+      [textObject setDrawsBackground: NO];
+      [textObject setBackgroundColor: [NSColor clearColor]];
+
+      NSView *clipView = [textObject superview];
+      if ([clipView isKindOfClass: [NSClipView class]])
+        {
+          [(id)clipView setDrawsBackground: NO];
+        }
+
       if (_cell.in_editing)
         {
           /* Just adjust the editor frame and let it handle its own drawing */
           NSRect titleRect = [self titleRectForBounds: cellFrame];
-          NSText *textObject = [(NSControl*)controlView currentEditor];
-          NSView *clipView = [textObject superview];
           
           if ([clipView isKindOfClass: [NSClipView class]])
             {
@@ -211,8 +225,6 @@ titleRect.size.height += 2;
       
       /* For non-editing mode, use standard behavior */
       NSRect titleRect = [self titleRectForBounds: cellFrame];
-      NSText *textObject = [(NSControl*)controlView currentEditor];
-      NSView *clipView = [textObject superview];
       
       if ([clipView isKindOfClass: [NSClipView class]])
         {
@@ -226,3 +238,60 @@ titleRect.size.height += 2;
 }
 
 @end
+
+// Make bezeled: NO the default for NSTextField (labels are the common case).
+// Apps wanting an input field call setBezeled: YES explicitly.
+// Make bezeled: NO the default for NSTextField (labels are the common case).
+// Apps wanting an input field call setBezeled: YES explicitly.
+@interface NSTextField (EauBezelDefault)
+- (id)initEauWithFrame:(NSRect)frameRect;
+- (id)initEauWithCoder:(NSCoder *)aDecoder;
+@end
+
+@implementation NSTextField (EauBezelDefault)
+
+- (id)initEauWithFrame:(NSRect)frameRect
+{
+  self = [self initEauWithFrame:frameRect];
+  if (self != nil)
+    {
+      [self setBezeled: NO];
+    }
+  return self;
+}
+
+- (id)initEauWithCoder:(NSCoder *)aDecoder
+{
+  self = [self initEauWithCoder:aDecoder];
+  if (self != nil)
+    {
+      [self setBezeled: NO];
+    }
+  return self;
+}
+
+@end
+
+__attribute__((constructor))
+static void initNSTextFieldBezelDefault(void)
+{
+  Class cls = [NSTextField class];
+  if (!cls)
+    {
+      return;
+    }
+
+  Method origInit = class_getInstanceMethod(cls, @selector(initWithFrame:));
+  Method swzInit = class_getInstanceMethod(cls, @selector(initEauWithFrame:));
+  if (origInit && swzInit)
+    {
+      method_exchangeImplementations(origInit, swzInit);
+    }
+
+  Method origCoder = class_getInstanceMethod(cls, @selector(initWithCoder:));
+  Method swzCoder = class_getInstanceMethod(cls, @selector(initEauWithCoder:));
+  if (origCoder && swzCoder)
+    {
+      method_exchangeImplementations(origCoder, swzCoder);
+    }
+}

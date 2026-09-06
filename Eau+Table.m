@@ -1,6 +1,23 @@
 #import "Eau.h"
 #import "Eau+Drawings.h"
 
+/* Private NSTableView hooks used by our drawOutlineViewRow override; these
+ * exist in the gui library but have no public header. */
+@interface NSTableView (EauPrivateHooks)
+- (id)_objectValueForTableColumn: (NSTableColumn *)tb
+			     row: (NSInteger)index;
+- (void)_willDisplayCell: (NSCell *)cell
+	  forTableColumn: (NSTableColumn *)tb
+		     row: (NSInteger)index;
+- (void)_calculatedStartingColumn: (NSInteger *)startingColumn
+		      endingColumn: (NSInteger *)endingColumn
+			inClipRect: (NSRect)clipRect;
+@end
+
+@interface NSCell (EauPrivateHooks)
+- (void)setShowsFirstResponder: (BOOL)flag;
+@end
+
 @interface Eau(EauTable)
 
 @end
@@ -125,6 +142,82 @@
                                                           alpha: 1.0];
               [strokeColor setStroke];
               [linesPath stroke];
+}
+
+/* GNUstep's default row drawing calls the delegate's willDisplayCell before
+ * setObjectValue:, so a title a delegate installs in willDisplayCell is
+ * wiped by the data source value and the row renders empty (apps written
+ * against macOS semantics set cell content in willDisplayCell). Setting the
+ * content first and calling the delegate last restores that order without
+ * patching the gui library. */
+- (void) drawOutlineViewRow: (NSInteger)rowIndex
+		    clipRect: (NSRect)clipRect
+		      inView: (NSOutlineView *)outlineView
+{
+  NSInteger editedRow = [outlineView editedRow];
+  NSInteger editedColumn = [outlineView editedColumn];
+  NSArray *tableColumns = [outlineView tableColumns];
+  NSInteger numberOfRows = [outlineView numberOfRows];
+  NSInteger startingColumn;
+  NSInteger endingColumn;
+  NSRect drawingRect;
+  NSInteger i;
+  NSTableColumn *outlineTableColumn = [outlineView outlineTableColumn];
+
+  if (rowIndex >= numberOfRows)
+    {
+      return;
+    }
+
+  [outlineView _calculatedStartingColumn: &startingColumn
+			    endingColumn: &endingColumn
+			      inClipRect: clipRect];
+
+  for (i = startingColumn; i <= endingColumn; i++)
+    {
+      id item = [outlineView itemAtRow: rowIndex];
+      NSTableColumn *tb = [tableColumns objectAtIndex: i];
+      NSCell *cell = [outlineView preparedCellAtColumn: i row: rowIndex];
+      BOOL editing = (i == editedColumn && rowIndex == editedRow);
+
+      /* Content first, then the delegate's customizations. While editing,
+       * leave the cell alone so it keeps the editor's value. */
+      if (!editing)
+        {
+          id value = [outlineView _objectValueForTableColumn: tb
+							 row: rowIndex];
+          [cell setObjectValue: value];
+        }
+      [outlineView _willDisplayCell: cell
+		     forTableColumn: tb
+				row: rowIndex];
+
+      if (editing)
+        {
+          [cell _setInEditing: YES];
+          [cell setShowsFirstResponder: YES];
+        }
+
+      drawingRect = [outlineView frameOfCellAtColumn: i
+						 row: rowIndex];
+
+      if (tb == outlineTableColumn)
+        {
+          drawingRect = [self drawOutlineCell: tb
+				  outlineView: outlineView
+					 item: item
+				  drawingRect: drawingRect
+				     rowIndex: rowIndex];
+        }
+
+      [cell drawWithFrame: drawingRect inView: outlineView];
+
+      if (editing)
+        {
+          [cell _setInEditing: NO];
+          [cell setShowsFirstResponder: NO];
+        }
+    }
 }
 
 @end

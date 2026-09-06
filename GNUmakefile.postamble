@@ -1,0 +1,8 @@
+# Installing the theme also installs the alerttest UI-test fixture so CI and
+# fresh systems get it next to the other helpers in CoreServices/Applications
+# (the isolated uitest session can only launch apps from standard locations).
+after-install::
+# gnustep-make chains "install -> all" only in the top-level invocation, so a
+# nested install would fail on a clean checkout with nothing built yet; ask
+# for "all" explicitly.
+	$(MAKE) -C Test all install
