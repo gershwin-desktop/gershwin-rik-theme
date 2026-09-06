@@ -137,10 +137,13 @@ static void s_eau_textView_mouseDown(id self, SEL _cmd, NSEvent *event)
 
               if (NSMouseInRect(mouseLoc, cancelRect, [sf isFlipped]))
                 {
+                  [[sf window] makeFirstResponder: nil];  // End editing
+                  [NSApp sendAction: [sf action] to: [sf target] from: sf];
                   [cell setStringValue: @""];
                   [self setString: @""];  // Clear the field editor text
+                  [[NSNotificationCenter defaultCenter] postNotificationName: NSControlTextDidChangeNotification
+                                                                      object: sf];
                   [sf setNeedsDisplay: YES];
-                  [sf sendAction: [sf action] to: [sf target]];
                   return;
                 }
             }

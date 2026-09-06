@@ -30,14 +30,17 @@
 - (void) eau_clearSearch
 {
   NSSearchFieldCell *cell = [self cell];
+  [[self window] makeFirstResponder: nil];  // End editing
+  [NSApp sendAction: [self action] to: [self target] from: self];
   [cell setStringValue: @""];
 
   NSText *editor = [self currentEditor];
   if (editor != nil)
     [editor setString: @""];
 
+  [[NSNotificationCenter defaultCenter] postNotificationName: NSControlTextDidChangeNotification
+                                                      object: self];
   [self setNeedsDisplay: YES];
-  [self sendAction: [self action] to: [self target]];
 }
 
 - (void) eau_keyDown: (NSEvent*)theEvent
